@@ -1,0 +1,223 @@
+# Prisma Edge Setup
+
+Configure Prisma for edge runtime with Accelerate connection pooling.
+
+## The Problem
+
+Prisma doesn't work on edge runtime by default:
+
+- Edge functions can't make direct TCP connections
+- Connection limits quickly exhausted
+- Cold starts are slow with connection setup
+
+## The Solution
+
+Use Prisma Accelerate for HTTP-based database connections that work on edge runtimes.
+
+## Files
+
+```typescript title="lib/db.ts"
+import { PrismaClient } from "@prisma/client";
+import { withAccelerate } from "@prisma/extension-accelerate";
+
+function createPrismaClient() {
+  const prisma = new PrismaClient({
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    },
+  }).$extends(withAccelerate());
+
+  return prisma;
+}
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: ReturnType<typeof createPrismaClient> | undefined;
+};
+
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
+```
+
+```typescript title="lib/db-edge.ts"
+import { PrismaClient } from "@prisma/client/edge";
+import { withAccelerate } from "@prisma/extension-accelerate";
+
+export const prismaEdge = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+}).$extends(withAccelerate());
+```
+
+```typescript title="app/api/edge-example/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { prismaEdge } from "@/lib/db-edge";
+
+export const runtime = "edge";
+
+export async function GET(req: NextRequest) {
+  const users = await prismaEdge.user.findMany({
+    take: 10,
+    cacheStrategy: {
+      ttl: 60, // Cache for 60 seconds
+      swr: 300, // Stale-while-revalidate for 5 minutes
+    },
+  });
+
+  return NextResponse.json(users);
+}
+```
+
+```typescript title="lib/cached-queries.ts"
+import { prisma } from "./db";
+
+// Use Accelerate's built-in caching
+export async function getCachedUser(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    cacheStrategy: {
+      ttl: 3600, // 1 hour
+      swr: 86400, // 24 hours stale-while-revalidate
+    },
+  });
+}
+
+export async function getCachedProducts() {
+  return prisma.product.findMany({
+    orderBy: { createdAt: "desc" },
+    cacheStrategy: {
+      ttl: 300, // 5 minutes
+      tags: ["products"], // For invalidation
+    },
+  });
+}
+
+// Invalidate cache by tag
+export async function invalidateProducts() {
+  await prisma.$accelerate.invalidate({
+    tags: ["products"],
+  });
+}
+```
+
+```prisma title="prisma/schema.prisma"
+generator client {
+  provider = "prisma-client-js"
+  // Enable edge client generation
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+
+```bash title=".env.example"
+# Prisma Accelerate connection string
+# Get from https://console.prisma.io
+DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=your-api-key"
+
+# Direct connection for migrations (optional)
+DIRECT_DATABASE_URL="postgresql://user:password@host:5432/database"
+```
+
+## Configuration
+
+### Setup Prisma Accelerate
+
+1. Go to [console.prisma.io](https://console.prisma.io)
+2. Create a new project and connect your database
+3. Get your Accelerate connection string
+4. Replace `DATABASE_URL` with the Accelerate URL
+
+### Generate Edge Client
+
+```bash
+# Generate both Node.js and Edge clients
+npx prisma generate
+```
+
+### Migrations with Direct Connection
+
+```bash
+# Use direct connection for migrations
+DATABASE_URL=$DIRECT_DATABASE_URL npx prisma migrate dev
+```
+
+## Usage
+
+### Standard Queries
+
+```typescript
+import { prisma } from "@/lib/db";
+
+// Works on Node.js runtime
+const user = await prisma.user.findUnique({
+  where: { id },
+});
+```
+
+### Edge Queries with Caching
+
+```typescript
+import { prismaEdge } from "@/lib/db-edge";
+
+// Works on Edge runtime with automatic caching
+const users = await prismaEdge.user.findMany({
+  cacheStrategy: {
+    ttl: 60,
+    swr: 300,
+  },
+});
+```
+
+### Invalidate Cache
+
+```typescript
+import { prisma } from "@/lib/db";
+
+// After updating data
+await prisma.product.update({
+  where: { id },
+  data: { name: "New Name" },
+});
+
+// Invalidate the cache
+await prisma.$accelerate.invalidate({
+  tags: ["products"],
+});
+```
+
+## Troubleshooting
+
+### "Cannot read properties of undefined"
+
+- Ensure Accelerate extension is properly added with `$extends(withAccelerate())`
+- Verify `DATABASE_URL` is the Accelerate URL, not direct connection
+
+### Edge function not using cache
+
+- Check that `cacheStrategy` is passed to the query
+- Verify Accelerate is properly configured in the Prisma console
+- Cache only works with Accelerate connections
+
+### Migrations failing
+
+- Use `DIRECT_DATABASE_URL` for migrations
+- Accelerate connections are read-only and can't run migrations

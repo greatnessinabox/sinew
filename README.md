@@ -1,135 +1,245 @@
-# Turborepo starter
+# sinew
 
-This Turborepo starter is maintained by the Turborepo core team.
+**Production-ready infrastructure patterns you can copy and paste into your apps.**
 
-## Using this example
+Sinew gives you battle-tested infrastructure code—database connections, authentication, deployment configs—that you own and can customize. No dependencies, no lock-in. Just copy what you need.
 
-Run the following command:
+## Why Sinew?
 
-```sh
-npx create-turbo@latest
+Every project needs the same infrastructure pieces: database connections that don't leak, auth that actually works, Docker configs that aren't 2GB. But you end up either:
+
+1. **Copy-pasting from old projects** (carrying forward old mistakes)
+2. **Following scattered tutorials** (half outdated, half incomplete)
+3. **Installing yet another package** (now you have a dependency to maintain)
+
+Sinew is different. It's a **pattern registry**—curated, tested infrastructure code you copy into your project. You own it. You can read it. You can change it.
+
+## Quick Start
+
+```bash
+# Install the CLI
+npm install -g sinew
+
+# Initialize in your project
+sinew init
+
+# Add a pattern
+sinew add database/connection-pooling
 ```
 
-## What's inside?
+Or just browse [sinew.marquis.codes](https://sinew.marquis.codes) and copy the code directly.
 
-This Turborepo includes the following packages/apps:
+## Available Patterns
 
-### Apps and Packages
+**19 production-ready patterns across 10 categories**
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### Database
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+| Pattern                                                     | Description                                          |
+| ----------------------------------------------------------- | ---------------------------------------------------- |
+| [Connection Pooling](/patterns/database/connection-pooling) | Serverless-ready Prisma setup with singleton pattern |
+| [Prisma Edge Setup](/patterns/database/prisma-edge)         | Configure Prisma for edge runtime with Accelerate    |
+| [Drizzle Config](/patterns/database/drizzle-config)         | Type-safe Drizzle ORM setup with migrations          |
 
-### Utilities
+### Authentication
 
-This Turborepo has some additional tools already setup for you:
+| Pattern                                       | Description                                      |
+| --------------------------------------------- | ------------------------------------------------ |
+| [OAuth Setup](/patterns/auth/oauth-setup)     | Auth.js with GitHub/Google and database sessions |
+| [Session Management](/patterns/auth/sessions) | Secure session handling with database storage    |
+| [RBAC Patterns](/patterns/auth/rbac)          | Role-based access control implementation         |
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+### API
 
-### Build
+| Pattern                                        | Description                                     |
+| ---------------------------------------------- | ----------------------------------------------- |
+| [Rate Limiting](/patterns/api/rate-limiting)   | Sliding window rate limiting with Upstash Redis |
+| [API Validation](/patterns/api/api-validation) | Type-safe request/response validation with Zod  |
+| [Error Handling](/patterns/api/error-handling) | Custom error classes and structured responses   |
 
-To build all apps and packages, run the following command:
+### Testing
 
-```
-cd my-turborepo
+| Pattern                                            | Description                                             |
+| -------------------------------------------------- | ------------------------------------------------------- |
+| [Vitest Setup](/patterns/testing/vitest-setup)     | Unit and integration testing with React Testing Library |
+| [Playwright E2E](/patterns/testing/playwright-e2e) | End-to-end testing with page objects and CI config      |
 
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build
+### Caching
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
-```
+| Pattern                                      | Description                                       |
+| -------------------------------------------- | ------------------------------------------------- |
+| [Redis Cache](/patterns/caching/redis-cache) | Redis caching with Upstash and cache invalidation |
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### Email
 
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build --filter=docs
+| Pattern                                      | Description                                    |
+| -------------------------------------------- | ---------------------------------------------- |
+| [Resend Email](/patterns/email/resend-email) | Transactional email with React Email templates |
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
+### Payments
 
-### Develop
+| Pattern                                               | Description                                    |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| [Stripe Payments](/patterns/payments/stripe-payments) | Checkout sessions, webhooks, and subscriptions |
 
-To develop all apps and packages, run the following command:
+### Monitoring
 
-```
-cd my-turborepo
+| Pattern                                                     | Description                               |
+| ----------------------------------------------------------- | ----------------------------------------- |
+| [Sentry Monitoring](/patterns/monitoring/sentry-monitoring) | Error tracking and performance monitoring |
 
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev
+### Environment
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
-```
+| Pattern                                              | Description                                      |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| [Type-safe Env](/patterns/environment/type-safe-env) | Runtime-validated environment variables with Zod |
+| [Secrets Management](/patterns/environment/secrets)  | Secure secrets handling with encryption at rest  |
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### Deployment
 
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev --filter=web
+| Pattern                                               | Description                               |
+| ----------------------------------------------------- | ----------------------------------------- |
+| [Docker Config](/patterns/deployment/docker)          | Multi-stage Docker builds for Next.js     |
+| [GitHub Actions](/patterns/deployment/github-actions) | CI/CD pipelines for testing and deploying |
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
+## CLI Usage
 
-### Remote Caching
+```bash
+# Initialize sinew in your project
+sinew init
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+# Add patterns
+sinew add database/connection-pooling
+sinew add database/drizzle-config
+sinew add auth/oauth-setup
+sinew add auth/rbac
+sinew add environment/type-safe-env
+sinew add deployment/docker
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo login
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
+# List all available patterns
+sinew list
 ```
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
+The CLI will:
 
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+- Create files in your project (typically in `lib/` or `src/`)
+- Show you the dependencies you need to install
+- Never overwrite existing files without asking
+
+## Example Apps
+
+Get started quickly with our example templates:
+
+```bash
+# Minimal Prisma setup
+npx degit greatnessinabox/sinew/examples/with-prisma my-app
+
+# NextAuth.js authentication
+npx degit greatnessinabox/sinew/examples/with-auth my-app
+
+# Full SaaS starter (Auth + Payments + Email)
+npx degit greatnessinabox/sinew/examples/saas-starter my-saas
+```
+
+See the [examples directory](./examples) for more details.
+
+## Project Structure
 
 ```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo link
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
+sinew/
+├── apps/
+│   ├── web/              # Documentation site (Next.js)
+│   └── example/          # Kitchen sink demo with E2E tests
+├── examples/             # Standalone starter templates
+│   ├── with-prisma/      # Minimal Prisma example
+│   ├── with-auth/        # NextAuth.js example
+│   └── saas-starter/     # Full SaaS template
+├── packages/
+│   ├── cli/              # sinew CLI
+│   ├── registry/         # Pattern definitions
+│   └── ...
+└── README.md
 ```
 
-## Useful Links
+## Development
 
-Learn more about the power of Turborepo:
+This is a [Turborepo](https://turbo.build) monorepo using [Bun](https://bun.sh).
 
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+### Prerequisites
+
+- **Node.js 20+** (use `.nvmrc` with `nvm use`)
+- **Bun 1.3+** as package manager
+
+### Tech Stack
+
+| Technology   | Version |
+| ------------ | ------- |
+| Node.js      | 20      |
+| Next.js      | 16      |
+| React        | 19      |
+| TypeScript   | 5.9     |
+| Tailwind CSS | 4       |
+| Bun          | 1.3     |
+
+### Getting Started
+
+```bash
+# Use correct Node version
+nvm use
+
+# Install dependencies
+bun install
+
+# Run development servers
+bun run dev
+
+# Build everything
+bun run build
+
+# Run linting
+bun run lint
+
+# Type check
+bun run check-types
+
+# Run example app
+bun run dev:example
+
+# Run E2E tests (on example app)
+bun run test:e2e
+```
+
+- Web app runs at [http://localhost:3000](http://localhost:3000)
+- Example app runs at [http://localhost:3001](http://localhost:3001)
+
+## Philosophy
+
+1. **You own the code.** Patterns are copied into your project, not installed as dependencies.
+2. **Readable over clever.** Code should be obvious. No magic.
+3. **Production-first.** Every pattern is what we'd ship to production.
+4. **Framework-aware.** Patterns are adapted for Next.js, Remix, SvelteKit, etc.
+
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+**Adding a new pattern:**
+
+1. Create the pattern in `packages/registry/src/patterns/`
+2. Add a documentation page in `apps/web/app/patterns/`
+3. Update the pattern list in `packages/registry/src/index.ts`
+4. Submit a PR
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
+
+## Links
+
+- **Website:** [sinew.marquis.codes](https://sinew.marquis.codes)
+- **GitHub:** [github.com/greatnessinabox/sinew](https://github.com/greatnessinabox/sinew)
+- **Author:** [marquis.codes](https://marquis.codes)
+
+---
+
+Built by [marquis.codes](https://marquis.codes)

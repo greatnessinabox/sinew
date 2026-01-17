@@ -1,0 +1,313 @@
+# Session Management
+
+Secure session handling with database storage and automatic cleanup.
+
+## The Problem
+
+Session management is easy to get wrong:
+
+- JWTs can't be invalidated without additional infrastructure
+- Session fixation attacks
+- No visibility into active sessions
+- Expired sessions accumulate in the database
+
+## The Solution
+
+Use database-backed sessions with Auth.js for full control over session lifecycle, with automatic cleanup of expired sessions.
+
+## Files
+
+```typescript title="lib/auth.ts"
+import NextAuth from "next-auth";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import { prisma } from "./db";
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  adapter: PrismaAdapter(prisma),
+  session: {
+    strategy: "database",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+    updateAge: 24 * 60 * 60, // Update session every 24 hours
+  },
+  callbacks: {
+    session({ session, user }) {
+      session.user.id = user.id;
+      return session;
+    },
+  },
+});
+```
+
+```typescript title="lib/session.ts"
+import { prisma } from "./db";
+import { auth } from "./auth";
+
+export async function getCurrentSession() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  return prisma.session.findFirst({
+    where: {
+      userId: session.user.id,
+      expires: { gt: new Date() },
+    },
+    orderBy: { expires: "desc" },
+  });
+}
+
+export async function getUserSessions(userId: string) {
+  return prisma.session.findMany({
+    where: {
+      userId,
+      expires: { gt: new Date() },
+    },
+    orderBy: { expires: "desc" },
+  });
+}
+
+export async function revokeSession(sessionToken: string, userId: string) {
+  // Only allow revoking own sessions
+  return prisma.session.deleteMany({
+    where: {
+      sessionToken,
+      userId,
+    },
+  });
+}
+
+export async function revokeAllSessions(userId: string, exceptCurrent?: string) {
+  return prisma.session.deleteMany({
+    where: {
+      userId,
+      ...(exceptCurrent && {
+        NOT: { sessionToken: exceptCurrent },
+      }),
+    },
+  });
+}
+
+export async function cleanupExpiredSessions() {
+  const result = await prisma.session.deleteMany({
+    where: {
+      expires: { lt: new Date() },
+    },
+  });
+
+  console.info(`Cleaned up ${result.count} expired sessions`);
+  return result.count;
+}
+```
+
+```typescript title="app/api/sessions/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { getUserSessions, revokeSession, revokeAllSessions } from "@/lib/session";
+
+export async function GET() {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const sessions = await getUserSessions(session.user.id);
+
+  return NextResponse.json(
+    sessions.map((s) => ({
+      id: s.sessionToken.slice(0, 8), // Partial token for identification
+      expires: s.expires,
+      isCurrent: false, // Can be determined by comparing with current session
+    }))
+  );
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { sessionToken, all } = await req.json();
+
+  if (all) {
+    // Revoke all sessions except current
+    await revokeAllSessions(session.user.id, sessionToken);
+  } else if (sessionToken) {
+    await revokeSession(sessionToken, session.user.id);
+  }
+
+  return NextResponse.json({ success: true });
+}
+```
+
+```typescript title="app/api/cron/cleanup-sessions/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { cleanupExpiredSessions } from "@/lib/session";
+
+export async function GET(req: NextRequest) {
+  // Verify cron secret
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const count = await cleanupExpiredSessions();
+
+  return NextResponse.json({ cleaned: count });
+}
+```
+
+```typescript title="components/session-manager.tsx"
+"use client";
+
+import { useEffect, useState } from "react";
+
+interface Session {
+  id: string;
+  expires: string;
+  isCurrent: boolean;
+}
+
+export function SessionManager() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+
+  useEffect(() => {
+    fetch("/api/sessions")
+      .then((res) => res.json())
+      .then(setSessions);
+  }, []);
+
+  async function revokeSession(sessionId: string) {
+    await fetch("/api/sessions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionToken: sessionId }),
+    });
+
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+  }
+
+  async function revokeAllOther() {
+    await fetch("/api/sessions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ all: true }),
+    });
+
+    setSessions((prev) => prev.filter((s) => s.isCurrent));
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold">Active Sessions</h2>
+        <button
+          onClick={revokeAllOther}
+          className="text-sm text-red-500 hover:text-red-600"
+        >
+          Sign out all other devices
+        </button>
+      </div>
+      <div className="space-y-2">
+        {sessions.map((session) => (
+          <div
+            key={session.id}
+            className="flex justify-between items-center p-3 rounded-lg border"
+          >
+            <div>
+              <p className="font-mono text-sm">{session.id}...</p>
+              <p className="text-sm text-muted">
+                Expires: {new Date(session.expires).toLocaleDateString()}
+              </p>
+            </div>
+            {!session.isCurrent && (
+              <button
+                onClick={() => revokeSession(session.id)}
+                className="text-sm text-red-500"
+              >
+                Revoke
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+```prisma title="prisma/schema.prisma"
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expires])
+}
+```
+
+## Configuration
+
+### Session Options
+
+```typescript
+session: {
+  strategy: "database", // Use database sessions
+  maxAge: 30 * 24 * 60 * 60, // 30 days
+  updateAge: 24 * 60 * 60, // Extend session every 24 hours on activity
+}
+```
+
+### Cron Job for Cleanup
+
+Add to `vercel.json`:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-sessions",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+```
+
+## Usage
+
+### Get Current Session
+
+```typescript
+import { auth } from "@/lib/auth";
+
+const session = await auth();
+if (session?.user) {
+  // User is authenticated
+}
+```
+
+### Force Re-authentication
+
+```typescript
+// Revoke all sessions to force re-login on all devices
+await revokeAllSessions(userId);
+```
+
+## Troubleshooting
+
+### Session not persisting
+
+- Check that database adapter is configured correctly
+- Verify session strategy is set to "database"
+- Check for cookie configuration issues
+
+### Sessions not expiring
+
+- Ensure cron job is running
+- Check `maxAge` configuration
+- Verify database indexes on `expires` column

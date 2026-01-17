@@ -1,0 +1,219 @@
+# Rate Limiting
+
+API rate limiting with a sliding window algorithm using Upstash Redis. Protects your API from abuse while allowing legitimate traffic.
+
+## The Problem
+
+Without rate limiting, your API is vulnerable to:
+
+- Denial of service attacks
+- Credential stuffing
+- Resource exhaustion
+- Excessive costs from abuse
+
+## The Solution
+
+Use Upstash Rate Limit with a sliding window algorithm for fair, consistent limiting.
+
+## Files
+
+```typescript title="lib/rate-limit.ts"
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+// Create a new ratelimiter that allows 10 requests per 10 seconds
+export const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(10, "10 s"),
+  analytics: true,
+  prefix: "@upstash/ratelimit",
+});
+
+// Stricter limit for auth endpoints
+export const authRatelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(5, "1 m"),
+  analytics: true,
+  prefix: "@upstash/ratelimit/auth",
+});
+
+// Generous limit for read-only endpoints
+export const readRatelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(100, "10 s"),
+  analytics: true,
+  prefix: "@upstash/ratelimit/read",
+});
+```
+
+```typescript title="lib/rate-limit-middleware.ts"
+import { NextResponse } from "next/server";
+import { ratelimit } from "./rate-limit";
+
+export async function withRateLimit(request: Request, handler: () => Promise<Response>) {
+  const ip = request.headers.get("x-forwarded-for") ?? "anonymous";
+  const { success, limit, remaining, reset } = await ratelimit.limit(ip);
+
+  if (!success) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Limit": limit.toString(),
+          "X-RateLimit-Remaining": remaining.toString(),
+          "X-RateLimit-Reset": reset.toString(),
+          "Retry-After": Math.ceil((reset - Date.now()) / 1000).toString(),
+        },
+      }
+    );
+  }
+
+  const response = await handler();
+
+  // Clone response to add headers
+  const newResponse = new NextResponse(response.body, response);
+  newResponse.headers.set("X-RateLimit-Limit", limit.toString());
+  newResponse.headers.set("X-RateLimit-Remaining", remaining.toString());
+  newResponse.headers.set("X-RateLimit-Reset", reset.toString());
+
+  return newResponse;
+}
+```
+
+```typescript title="app/api/example/route.ts"
+import { NextResponse } from "next/server";
+import { ratelimit } from "@/lib/rate-limit";
+
+export async function GET(request: Request) {
+  const ip = request.headers.get("x-forwarded-for") ?? "anonymous";
+  const { success, limit, remaining, reset } = await ratelimit.limit(ip);
+
+  if (!success) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": Math.ceil((reset - Date.now()) / 1000).toString(),
+        },
+      }
+    );
+  }
+
+  return NextResponse.json(
+    { message: "Hello, world!" },
+    {
+      headers: {
+        "X-RateLimit-Limit": limit.toString(),
+        "X-RateLimit-Remaining": remaining.toString(),
+      },
+    }
+  );
+}
+```
+
+```typescript title="middleware.ts"
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(20, "10 s"),
+});
+
+export async function middleware(request: NextRequest) {
+  // Only rate limit API routes
+  if (!request.nextUrl.pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  const ip = request.ip ?? "127.0.0.1";
+  const { success, limit, remaining } = await ratelimit.limit(ip);
+
+  if (!success) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
+  const response = NextResponse.next();
+  response.headers.set("X-RateLimit-Limit", limit.toString());
+  response.headers.set("X-RateLimit-Remaining", remaining.toString());
+  return response;
+}
+
+export const config = {
+  matcher: "/api/:path*",
+};
+```
+
+```bash title=".env.example"
+UPSTASH_REDIS_REST_URL="https://..."
+UPSTASH_REDIS_REST_TOKEN="..."
+```
+
+## Configuration
+
+### Rate Limit Algorithms
+
+```typescript
+// Fixed window - resets at fixed intervals
+Ratelimit.fixedWindow(10, "1 m");
+
+// Sliding window - smoother limiting
+Ratelimit.slidingWindow(10, "10 s");
+
+// Token bucket - allows bursts
+Ratelimit.tokenBucket(10, "1 s", 20);
+```
+
+### Custom Identifiers
+
+```typescript
+// Rate limit by user ID instead of IP
+const userId = session?.user?.id ?? "anonymous";
+const { success } = await ratelimit.limit(userId);
+
+// Rate limit by API key
+const apiKey = request.headers.get("x-api-key") ?? "anonymous";
+const { success } = await ratelimit.limit(`api:${apiKey}`);
+```
+
+## Usage
+
+### Different Limits for Different Endpoints
+
+```typescript
+// Strict for auth
+const authLimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(5, "15 m"), // 5 attempts per 15 min
+});
+
+// Generous for reads
+const readLimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(1000, "1 h"),
+});
+
+// Moderate for writes
+const writeLimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(100, "1 h"),
+});
+```
+
+## Troubleshooting
+
+### Rate limiting not working
+
+- Verify Upstash credentials are correct
+- Check that the Redis instance is accessible
+- Ensure the identifier (IP/user ID) is being extracted correctly
+
+### Too aggressive limiting
+
+- Adjust the window size and request count
+- Consider using token bucket for burst tolerance
+- Use different limits for different endpoint types

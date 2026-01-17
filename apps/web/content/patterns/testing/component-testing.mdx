@@ -1,0 +1,314 @@
+# Component Testing
+
+React component testing with Testing Library, user events, and accessibility testing.
+
+## The Problem
+
+Component tests are often brittle and don't catch real bugs:
+
+- Testing implementation details breaks on refactors
+- Missing accessibility issues
+- User interactions aren't tested realistically
+
+## The Solution
+
+Use Testing Library to test components the way users interact with them. Focus on behavior, not implementation.
+
+## Files
+
+```typescript title="vitest.config.ts"
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+import { resolve } from "path";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
+    globals: true,
+    css: true,
+  },
+  resolve: {
+    alias: {
+      "@": resolve(__dirname, "./"),
+    },
+  },
+});
+```
+
+```typescript title="vitest.setup.ts"
+import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+afterEach(() => {
+  cleanup();
+});
+```
+
+```typescript title="tests/utils.tsx"
+import { render, RenderOptions } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ReactElement } from "react";
+
+// Add providers here
+function AllProviders({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+function customRender(
+  ui: ReactElement,
+  options?: Omit<RenderOptions, "wrapper">
+) {
+  return {
+    user: userEvent.setup(),
+    ...render(ui, { wrapper: AllProviders, ...options }),
+  };
+}
+
+export * from "@testing-library/react";
+export { customRender as render };
+```
+
+```typescript title="components/button.tsx"
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: "primary" | "secondary" | "danger";
+  loading?: boolean;
+  children: React.ReactNode;
+}
+
+export function Button({
+  variant = "primary",
+  loading = false,
+  children,
+  disabled,
+  ...props
+}: ButtonProps) {
+  return (
+    <button
+      className={`btn btn-${variant}`}
+      disabled={disabled || loading}
+      aria-busy={loading}
+      {...props}
+    >
+      {loading ? "Loading..." : children}
+    </button>
+  );
+}
+```
+
+```typescript title="tests/button.test.tsx"
+import { render, screen } from "./utils";
+import { Button } from "@/components/button";
+
+describe("Button", () => {
+  it("renders children", () => {
+    render(<Button>Click me</Button>);
+    expect(screen.getByRole("button", { name: "Click me" })).toBeInTheDocument();
+  });
+
+  it("handles click events", async () => {
+    const handleClick = vi.fn();
+    const { user } = render(<Button onClick={handleClick}>Click me</Button>);
+
+    await user.click(screen.getByRole("button"));
+
+    expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows loading state", () => {
+    render(<Button loading>Submit</Button>);
+
+    const button = screen.getByRole("button");
+    expect(button).toHaveTextContent("Loading...");
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("is disabled when disabled prop is true", () => {
+    render(<Button disabled>Submit</Button>);
+
+    expect(screen.getByRole("button")).toBeDisabled();
+  });
+
+  it("does not fire click when disabled", async () => {
+    const handleClick = vi.fn();
+    const { user } = render(
+      <Button disabled onClick={handleClick}>
+        Click me
+      </Button>
+    );
+
+    await user.click(screen.getByRole("button"));
+
+    expect(handleClick).not.toHaveBeenCalled();
+  });
+});
+```
+
+```typescript title="components/search-form.tsx"
+"use client";
+
+import { useState } from "react";
+
+interface SearchFormProps {
+  onSearch: (query: string) => void;
+}
+
+export function SearchForm({ onSearch }: SearchFormProps) {
+  const [query, setQuery] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (query.trim()) {
+      onSearch(query.trim());
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} role="search">
+      <label htmlFor="search-input" className="sr-only">
+        Search
+      </label>
+      <input
+        id="search-input"
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search..."
+        aria-label="Search"
+      />
+      <button type="submit">Search</button>
+    </form>
+  );
+}
+```
+
+```typescript title="tests/search-form.test.tsx"
+import { render, screen } from "./utils";
+import { SearchForm } from "@/components/search-form";
+
+describe("SearchForm", () => {
+  it("calls onSearch with query on submit", async () => {
+    const handleSearch = vi.fn();
+    const { user } = render(<SearchForm onSearch={handleSearch} />);
+
+    await user.type(screen.getByRole("searchbox"), "react testing");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(handleSearch).toHaveBeenCalledWith("react testing");
+  });
+
+  it("does not call onSearch with empty query", async () => {
+    const handleSearch = vi.fn();
+    const { user } = render(<SearchForm onSearch={handleSearch} />);
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(handleSearch).not.toHaveBeenCalled();
+  });
+
+  it("trims whitespace from query", async () => {
+    const handleSearch = vi.fn();
+    const { user } = render(<SearchForm onSearch={handleSearch} />);
+
+    await user.type(screen.getByRole("searchbox"), "  react  ");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(handleSearch).toHaveBeenCalledWith("react");
+  });
+
+  it("is accessible", () => {
+    render(<SearchForm onSearch={() => {}} />);
+
+    expect(screen.getByRole("search")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox")).toHaveAccessibleName("Search");
+  });
+});
+```
+
+## Configuration
+
+### Package.json Scripts
+
+```json
+{
+  "scripts": {
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage"
+  }
+}
+```
+
+## Usage
+
+### Querying Elements
+
+```typescript
+// Preferred: By role (most accessible)
+screen.getByRole("button", { name: "Submit" });
+screen.getByRole("textbox", { name: "Email" });
+screen.getByRole("heading", { level: 1 });
+
+// By label (forms)
+screen.getByLabelText("Email");
+
+// By placeholder (less preferred)
+screen.getByPlaceholderText("Enter email");
+
+// By text content
+screen.getByText("Welcome");
+
+// By test ID (last resort)
+screen.getByTestId("custom-element");
+```
+
+### Async Queries
+
+```typescript
+// Wait for element to appear
+await screen.findByText("Loaded data");
+
+// Assert element is not present
+expect(screen.queryByText("Loading")).not.toBeInTheDocument();
+
+// Wait for element to disappear
+await waitForElementToBeRemoved(() => screen.queryByText("Loading"));
+```
+
+### User Events
+
+```typescript
+const { user } = render(<MyComponent />);
+
+// Typing
+await user.type(input, "hello");
+await user.clear(input);
+
+// Clicking
+await user.click(button);
+await user.dblClick(element);
+
+// Keyboard
+await user.keyboard("{Enter}");
+await user.tab();
+
+// Selection
+await user.selectOptions(select, ["option1"]);
+```
+
+## Troubleshooting
+
+### Cannot find element
+
+- Use `screen.debug()` to see rendered output
+- Check that element is visible (not hidden by CSS)
+- Use `findBy*` for async elements
+
+### Events not firing
+
+- Use `userEvent` instead of `fireEvent`
+- Make sure to `await` user actions
+- Check that element is not disabled

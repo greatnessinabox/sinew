@@ -1,0 +1,319 @@
+# LemonSqueezy
+
+Payment integration with LemonSqueezy. Includes checkout, webhooks, and subscriptions with built-in tax handling.
+
+## The Problem
+
+Stripe is powerful but complex for indie projects:
+
+- You handle tax compliance yourself
+- Need to set up Stripe Tax or integrate with third-party services
+- Subscription management requires significant code
+
+## The Solution
+
+LemonSqueezy is a Merchant of Record - they handle global tax compliance, payments, and subscriptions so you can focus on building.
+
+## Files
+
+```typescript title="lib/lemonsqueezy.ts"
+import {
+  lemonSqueezySetup,
+  getSubscription,
+  cancelSubscription,
+  updateSubscription,
+  getCustomer,
+  createCheckout,
+  type Subscription,
+} from "@lemonsqueezy/lemonsqueezy.js";
+
+lemonSqueezySetup({
+  apiKey: process.env.LEMONSQUEEZY_API_KEY!,
+  onError: (error) => console.error("LemonSqueezy error:", error),
+});
+
+export async function createCheckoutSession(variantId: string, userId: string, email: string) {
+  const checkout = await createCheckout(process.env.LEMONSQUEEZY_STORE_ID!, variantId, {
+    checkoutData: {
+      email,
+      custom: {
+        user_id: userId,
+      },
+    },
+    productOptions: {
+      redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?checkout=success`,
+    },
+  });
+
+  return checkout.data?.data.attributes.url;
+}
+
+export async function getUserSubscription(subscriptionId: string) {
+  const subscription = await getSubscription(subscriptionId);
+  return subscription.data?.data;
+}
+
+export async function cancelUserSubscription(subscriptionId: string) {
+  return cancelSubscription(subscriptionId);
+}
+
+export async function resumeSubscription(subscriptionId: string) {
+  return updateSubscription(subscriptionId, {
+    cancelled: false,
+  });
+}
+
+export async function updateSubscriptionPlan(subscriptionId: string, variantId: string) {
+  return updateSubscription(subscriptionId, {
+    variantId,
+  });
+}
+
+export function isSubscriptionActive(subscription: Subscription["data"]): boolean {
+  const status = subscription.attributes.status;
+  return status === "active" || status === "on_trial";
+}
+```
+
+```typescript title="app/api/checkout/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { createCheckoutSession } from "@/lib/lemonsqueezy";
+
+export async function POST(req: NextRequest) {
+  const session = await auth();
+
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { variantId } = await req.json();
+
+  try {
+    const checkoutUrl = await createCheckoutSession(
+      variantId,
+      session.user.id,
+      session.user.email!
+    );
+
+    return NextResponse.json({ url: checkoutUrl });
+  } catch (error) {
+    console.error("Checkout error:", error);
+    return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
+  }
+}
+```
+
+```typescript title="app/api/webhooks/lemonsqueezy/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+import { prisma } from "@/lib/db";
+
+export async function POST(req: NextRequest) {
+  const rawBody = await req.text();
+  const signature = req.headers.get("x-signature");
+
+  if (!signature) {
+    return NextResponse.json({ error: "No signature" }, { status: 401 });
+  }
+
+  const hmac = crypto.createHmac("sha256", process.env.LEMONSQUEEZY_WEBHOOK_SECRET!);
+  const digest = hmac.update(rawBody).digest("hex");
+
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest))) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  const event = JSON.parse(rawBody);
+  const eventName = event.meta.event_name;
+  const data = event.data;
+
+  switch (eventName) {
+    case "subscription_created":
+      await handleSubscriptionCreated(data);
+      break;
+
+    case "subscription_updated":
+      await handleSubscriptionUpdated(data);
+      break;
+
+    case "subscription_cancelled":
+      await handleSubscriptionCancelled(data);
+      break;
+
+    case "subscription_payment_success":
+      await handlePaymentSuccess(data);
+      break;
+  }
+
+  return NextResponse.json({ received: true });
+}
+
+async function handleSubscriptionCreated(data: any) {
+  const userId = data.attributes.custom_data?.user_id;
+  if (!userId) return;
+
+  await prisma.subscription.create({
+    data: {
+      userId,
+      subscriptionId: data.id,
+      status: data.attributes.status,
+      planId: data.attributes.variant_id.toString(),
+      currentPeriodEnd: new Date(data.attributes.renews_at),
+    },
+  });
+}
+
+async function handleSubscriptionUpdated(data: any) {
+  await prisma.subscription.update({
+    where: { subscriptionId: data.id },
+    data: {
+      status: data.attributes.status,
+      planId: data.attributes.variant_id.toString(),
+      currentPeriodEnd: new Date(data.attributes.renews_at),
+    },
+  });
+}
+
+async function handleSubscriptionCancelled(data: any) {
+  await prisma.subscription.update({
+    where: { subscriptionId: data.id },
+    data: {
+      status: "cancelled",
+      cancelledAt: new Date(),
+    },
+  });
+}
+
+async function handlePaymentSuccess(data: any) {
+  console.info("Payment received:", data.id);
+}
+```
+
+```typescript title="components/pricing-card.tsx"
+"use client";
+
+import { useState } from "react";
+
+interface PricingCardProps {
+  name: string;
+  price: string;
+  variantId: string;
+  features: string[];
+  popular?: boolean;
+}
+
+export function PricingCard({
+  name,
+  price,
+  variantId,
+  features,
+  popular,
+}: PricingCardProps) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleCheckout() {
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ variantId }),
+      });
+
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error("Checkout error:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className={`p-6 rounded-xl border ${popular ? "border-accent" : "border-border"}`}>
+      <h3 className="text-xl font-semibold">{name}</h3>
+      <p className="text-3xl font-bold mt-2">{price}</p>
+      <ul className="mt-4 space-y-2">
+        {features.map((feature) => (
+          <li key={feature} className="text-muted">✓ {feature}</li>
+        ))}
+      </ul>
+      <button
+        onClick={handleCheckout}
+        disabled={loading}
+        className="mt-6 w-full py-2 px-4 bg-accent text-white rounded-lg"
+      >
+        {loading ? "Loading..." : "Get Started"}
+      </button>
+    </div>
+  );
+}
+```
+
+```bash title=".env.example"
+LEMONSQUEEZY_API_KEY="your-api-key"
+LEMONSQUEEZY_STORE_ID="your-store-id"
+LEMONSQUEEZY_WEBHOOK_SECRET="your-webhook-secret"
+NEXT_PUBLIC_APP_URL="https://yourapp.com"
+```
+
+## Configuration
+
+### LemonSqueezy Setup
+
+1. Create an account at [lemonsqueezy.com](https://lemonsqueezy.com)
+2. Create a store and products
+3. Get your API key from Settings > API
+4. Set up a webhook pointing to `/api/webhooks/lemonsqueezy`
+
+### Webhook Events
+
+Subscribe to these events:
+
+- `subscription_created`
+- `subscription_updated`
+- `subscription_cancelled`
+- `subscription_payment_success`
+
+## Usage
+
+### Creating a Checkout
+
+```typescript
+const response = await fetch("/api/checkout", {
+  method: "POST",
+  body: JSON.stringify({ variantId: "123456" }),
+});
+
+const { url } = await response.json();
+window.location.href = url;
+```
+
+### Checking Subscription Status
+
+```typescript
+import { prisma } from "@/lib/db";
+
+const subscription = await prisma.subscription.findUnique({
+  where: { userId },
+});
+
+const isActive = subscription?.status === "active";
+```
+
+## Troubleshooting
+
+### Webhook not receiving events
+
+- Verify webhook URL is publicly accessible
+- Check webhook secret matches
+- Test with LemonSqueezy's webhook tester
+
+### Checkout not redirecting
+
+- Ensure `NEXT_PUBLIC_APP_URL` is set correctly
+- Check browser console for errors

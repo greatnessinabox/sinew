@@ -1,0 +1,261 @@
+# AWS SES
+
+Cost-effective email at scale with AWS Simple Email Service. Pay only $0.10 per 1,000 emails.
+
+## The Problem
+
+High-volume email is expensive:
+
+- Email APIs charge $1-3+ per 1,000 emails
+- Self-hosted SMTP requires infrastructure management
+- Deliverability without proper setup is poor
+
+## The Solution
+
+Use AWS SES for reliable, cost-effective email at scale with excellent deliverability.
+
+## Files
+
+```typescript title="lib/email.ts"
+import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+
+const ses = new SESClient({
+  region: process.env.AWS_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+interface SendEmailOptions {
+  to: string | string[];
+  subject: string;
+  html?: string;
+  text?: string;
+  from?: string;
+  replyTo?: string[];
+}
+
+const DEFAULT_FROM = process.env.EMAIL_FROM || "noreply@example.com";
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+  from = DEFAULT_FROM,
+  replyTo,
+}: SendEmailOptions) {
+  const toAddresses = Array.isArray(to) ? to : [to];
+
+  const command = new SendEmailCommand({
+    Source: from,
+    Destination: {
+      ToAddresses: toAddresses,
+    },
+    Message: {
+      Subject: {
+        Data: subject,
+        Charset: "UTF-8",
+      },
+      Body: {
+        ...(html && {
+          Html: {
+            Data: html,
+            Charset: "UTF-8",
+          },
+        }),
+        ...(text && {
+          Text: {
+            Data: text,
+            Charset: "UTF-8",
+          },
+        }),
+      },
+    },
+    ...(replyTo && { ReplyToAddresses: replyTo }),
+  });
+
+  const result = await ses.send(command);
+  console.info(`Email sent: ${result.MessageId}`);
+  return result;
+}
+```
+
+```typescript title="lib/email-bulk.ts"
+import { SESClient, SendBulkTemplatedEmailCommand } from "@aws-sdk/client-ses";
+
+const ses = new SESClient({
+  region: process.env.AWS_REGION || "us-east-1",
+});
+
+interface BulkEmailDestination {
+  to: string;
+  templateData: Record<string, string>;
+}
+
+export async function sendBulkEmail(
+  templateName: string,
+  destinations: BulkEmailDestination[],
+  from?: string
+) {
+  const command = new SendBulkTemplatedEmailCommand({
+    Source: from || process.env.EMAIL_FROM,
+    Template: templateName,
+    DefaultTemplateData: JSON.stringify({}),
+    Destinations: destinations.map((dest) => ({
+      Destination: {
+        ToAddresses: [dest.to],
+      },
+      ReplacementTemplateData: JSON.stringify(dest.templateData),
+    })),
+  });
+
+  const result = await ses.send(command);
+  console.info(`Bulk email sent: ${result.Status?.length} recipients`);
+  return result;
+}
+```
+
+```typescript title="lib/email-templates.ts"
+import { SESClient, CreateTemplateCommand } from "@aws-sdk/client-ses";
+
+const ses = new SESClient({
+  region: process.env.AWS_REGION || "us-east-1",
+});
+
+// Create a reusable SES template
+export async function createEmailTemplate(
+  templateName: string,
+  subject: string,
+  html: string,
+  text: string
+) {
+  const command = new CreateTemplateCommand({
+    Template: {
+      TemplateName: templateName,
+      SubjectPart: subject,
+      HtmlPart: html,
+      TextPart: text,
+    },
+  });
+
+  return ses.send(command);
+}
+
+// Example: Create welcome template
+export async function setupTemplates() {
+  await createEmailTemplate(
+    "WelcomeEmail",
+    "Welcome to {{appName}}, {{name}}!",
+    `
+      <html>
+        <body>
+          <h1>Welcome, {{name}}!</h1>
+          <p>Thanks for joining {{appName}}.</p>
+          <a href="{{loginUrl}}">Get Started</a>
+        </body>
+      </html>
+    `,
+    "Welcome, {{name}}! Thanks for joining {{appName}}. Get started: {{loginUrl}}"
+  );
+}
+```
+
+```typescript title="app/api/email/send/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { sendEmail } from "@/lib/email";
+
+export async function POST(req: NextRequest) {
+  const { to, subject, html, text } = await req.json();
+
+  try {
+    const result = await sendEmail({ to, subject, html, text });
+    return NextResponse.json({ messageId: result.MessageId });
+  } catch (error) {
+    console.error("Failed to send email:", error);
+    return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
+  }
+}
+```
+
+```bash title=".env.example"
+# AWS Credentials
+AWS_REGION="us-east-1"
+AWS_ACCESS_KEY_ID="AKIA..."
+AWS_SECRET_ACCESS_KEY="..."
+
+# Email Configuration
+EMAIL_FROM="Your App <noreply@yourdomain.com>"
+```
+
+## Configuration
+
+### AWS SES Setup
+
+1. Verify your domain in the SES console
+2. Request production access (to send to any email)
+3. Create an IAM user with SES permissions
+
+### IAM Policy
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ses:SendEmail", "ses:SendBulkTemplatedEmail", "ses:CreateTemplate"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+### DNS Records
+
+Add these records to your domain:
+
+- **SPF**: `v=spf1 include:amazonses.com ~all`
+- **DKIM**: Provided by AWS SES
+- **DMARC**: `v=DMARC1; p=quarantine; rua=mailto:dmarc@yourdomain.com`
+
+## Usage
+
+### Simple Email
+
+```typescript
+import { sendEmail } from "@/lib/email";
+
+await sendEmail({
+  to: "user@example.com",
+  subject: "Hello!",
+  html: "<p>This is a test</p>",
+  text: "This is a test",
+});
+```
+
+### Bulk Email with Templates
+
+```typescript
+import { sendBulkEmail } from "@/lib/email-bulk";
+
+await sendBulkEmail("WelcomeEmail", [
+  { to: "user1@example.com", templateData: { name: "Alice", appName: "MyApp" } },
+  { to: "user2@example.com", templateData: { name: "Bob", appName: "MyApp" } },
+]);
+```
+
+## Troubleshooting
+
+### Sandbox mode restrictions
+
+- New SES accounts are in sandbox mode
+- Can only send to verified emails
+- Request production access in the AWS console
+
+### Emails bouncing
+
+- Check your SES reputation dashboard
+- Handle bounces and complaints via SNS
+- Remove invalid emails from your lists

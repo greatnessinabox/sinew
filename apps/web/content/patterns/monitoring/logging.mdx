@@ -1,0 +1,237 @@
+# Structured Logging
+
+Structured JSON logging with Pino. Fast, low-overhead logging with log levels and context.
+
+## The Problem
+
+Console.log doesn't scale:
+
+- No log levels for filtering
+- No structured data for querying
+- Slow in production
+- No context propagation
+
+## The Solution
+
+Use Pino for fast, structured JSON logging that works great with log aggregation services.
+
+## Files
+
+```typescript title="lib/logger.ts"
+import pino from "pino";
+
+const isDev = process.env.NODE_ENV === "development";
+
+export const logger = pino({
+  level: process.env.LOG_LEVEL || (isDev ? "debug" : "info"),
+  ...(isDev && {
+    transport: {
+      target: "pino-pretty",
+      options: {
+        colorize: true,
+        ignore: "pid,hostname",
+        translateTime: "HH:MM:ss",
+      },
+    },
+  }),
+  base: {
+    env: process.env.NODE_ENV,
+    version: process.env.npm_package_version,
+  },
+  redact: {
+    paths: ["password", "token", "authorization", "cookie"],
+    censor: "[REDACTED]",
+  },
+});
+
+// Create child logger with context
+export function createLogger(context: Record<string, unknown>) {
+  return logger.child(context);
+}
+```
+
+```typescript title="lib/request-logger.ts"
+import { NextRequest } from "next/server";
+import { logger } from "./logger";
+
+export function logRequest(req: NextRequest, startTime: number, statusCode: number) {
+  const duration = Date.now() - startTime;
+  const requestId = req.headers.get("x-request-id") || "unknown";
+
+  logger.info({
+    type: "request",
+    requestId,
+    method: req.method,
+    path: req.nextUrl.pathname,
+    statusCode,
+    duration,
+    userAgent: req.headers.get("user-agent"),
+    ip: req.headers.get("x-forwarded-for"),
+  });
+}
+
+export function withRequestLogging<T extends unknown[]>(
+  handler: (req: NextRequest, ...args: T) => Promise<Response>
+) {
+  return async (req: NextRequest, ...args: T): Promise<Response> => {
+    const startTime = Date.now();
+
+    try {
+      const response = await handler(req, ...args);
+      logRequest(req, startTime, response.status);
+      return response;
+    } catch (error) {
+      logger.error({
+        type: "request_error",
+        method: req.method,
+        path: req.nextUrl.pathname,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      throw error;
+    }
+  };
+}
+```
+
+```typescript title="lib/action-logger.ts"
+import { logger, createLogger } from "./logger";
+
+type ActionContext = {
+  action: string;
+  userId?: string;
+  [key: string]: unknown;
+};
+
+export function createActionLogger(context: ActionContext) {
+  return createLogger({ type: "action", ...context });
+}
+
+// Usage in Server Actions
+export function withActionLogging<TArgs extends unknown[], TResult>(
+  actionName: string,
+  action: (...args: TArgs) => Promise<TResult>
+) {
+  return async (...args: TArgs): Promise<TResult> => {
+    const startTime = Date.now();
+    const log = createActionLogger({ action: actionName });
+
+    try {
+      log.info({ event: "action_start" });
+      const result = await action(...args);
+      log.info({ event: "action_success", duration: Date.now() - startTime });
+      return result;
+    } catch (error) {
+      log.error({
+        event: "action_error",
+        duration: Date.now() - startTime,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      throw error;
+    }
+  };
+}
+```
+
+```typescript title="app/api/users/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { withRequestLogging } from "@/lib/request-logger";
+import { logger } from "@/lib/logger";
+
+export const GET = withRequestLogging(async (req: NextRequest) => {
+  logger.debug({ event: "fetching_users" });
+
+  const users = []; // await db.user.findMany();
+
+  logger.info({ event: "users_fetched", count: users.length });
+
+  return NextResponse.json(users);
+});
+```
+
+```typescript title="app/actions/create-user.ts"
+"use server";
+
+import { withActionLogging } from "@/lib/action-logger";
+import { logger } from "@/lib/logger";
+
+async function createUserAction(data: { name: string; email: string }) {
+  logger.debug({ event: "creating_user", email: data.email });
+
+  // const user = await db.user.create({ data });
+
+  logger.info({ event: "user_created", email: data.email });
+
+  return { success: true };
+}
+
+export const createUser = withActionLogging("createUser", createUserAction);
+```
+
+## Configuration
+
+### Log Levels
+
+```typescript
+// Available levels (in order of priority)
+logger.fatal("App crashed");
+logger.error("Operation failed");
+logger.warn("Deprecated feature used");
+logger.info("User logged in");
+logger.debug("Query executed");
+logger.trace("Detailed trace info");
+```
+
+### Environment Variables
+
+```bash
+# Set log level
+LOG_LEVEL="debug"  # development
+LOG_LEVEL="info"   # production
+
+# Disable pretty printing
+NODE_ENV="production"
+```
+
+## Usage
+
+### Basic Logging
+
+```typescript
+import { logger } from "@/lib/logger";
+
+// Simple message
+logger.info("User logged in");
+
+// With context
+logger.info({ userId: "123", action: "login" }, "User logged in");
+
+// Error logging
+logger.error({ err: error, userId: "123" }, "Operation failed");
+```
+
+### Child Loggers
+
+```typescript
+import { createLogger } from "@/lib/logger";
+
+// Create a logger with context
+const userLogger = createLogger({ module: "users", userId: "123" });
+
+// All logs include the context
+userLogger.info("Profile updated");
+// Output: {"module":"users","userId":"123","msg":"Profile updated"}
+```
+
+## Troubleshooting
+
+### Logs not appearing
+
+- Check `LOG_LEVEL` environment variable
+- Ensure pino-pretty is installed for development
+- Verify logger is imported correctly
+
+### Performance issues
+
+- Pino is async by default, which is optimal
+- Avoid logging large objects
+- Use appropriate log levels in production

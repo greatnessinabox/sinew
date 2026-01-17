@@ -1,0 +1,187 @@
+# Next.js Cache
+
+Next.js built-in caching with `unstable_cache`, `revalidatePath`, and `revalidateTag` for zero-dependency caching.
+
+## The Problem
+
+Adding external caching infrastructure is often overkill:
+
+- Redis requires additional infrastructure and cost
+- Managing cache invalidation across deployments is complex
+- Cold starts on serverless need fast cache warming
+
+## The Solution
+
+Use Next.js built-in caching for simple, zero-config caching that works out of the box on Vercel and other platforms.
+
+## Files
+
+```typescript title="lib/cache.ts"
+import { unstable_cache } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+
+// Cache a function with tags for invalidation
+export function cachedQuery<T>(
+  fn: () => Promise<T>,
+  keyParts: string[],
+  options?: {
+    tags?: string[];
+    revalidate?: number | false;
+  }
+) {
+  return unstable_cache(fn, keyParts, {
+    tags: options?.tags,
+    revalidate: options?.revalidate,
+  });
+}
+
+// Revalidate a specific path
+export function invalidatePath(path: string, type?: "page" | "layout") {
+  revalidatePath(path, type);
+}
+
+// Revalidate all entries with a tag
+export function invalidateTag(tag: string) {
+  revalidateTag(tag);
+}
+```
+
+```typescript title="lib/data/users.ts"
+import { prisma } from "@/lib/db";
+import { cachedQuery, invalidateTag } from "@/lib/cache";
+
+export const getUser = (id: string) =>
+  cachedQuery(() => prisma.user.findUnique({ where: { id } }), ["user", id], {
+    tags: [`user:${id}`, "users"],
+    revalidate: 3600,
+  })();
+
+export const getUsers = () =>
+  cachedQuery(() => prisma.user.findMany({ orderBy: { createdAt: "desc" } }), ["users"], {
+    tags: ["users"],
+    revalidate: 60,
+  })();
+
+export async function updateUser(id: string, data: { name: string }) {
+  const user = await prisma.user.update({ where: { id }, data });
+  invalidateTag(`user:${id}`);
+  invalidateTag("users");
+  return user;
+}
+```
+
+```typescript title="app/users/[id]/page.tsx"
+import { getUser } from "@/lib/data/users";
+import { notFound } from "next/navigation";
+
+export default async function UserPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const user = await getUser(id);
+
+  if (!user) {
+    notFound();
+  }
+
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <p>{user.email}</p>
+    </div>
+  );
+}
+```
+
+```typescript title="app/api/users/[id]/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { updateUser } from "@/lib/data/users";
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const data = await req.json();
+  const user = await updateUser(id, data);
+  return NextResponse.json(user);
+}
+```
+
+## Configuration
+
+### Cache Revalidation Options
+
+```typescript
+// Revalidate every 60 seconds
+{
+  revalidate: 60;
+}
+
+// Never revalidate (static)
+{
+  revalidate: false;
+}
+
+// Don't specify - uses page/route segment config
+{
+}
+```
+
+### Route Segment Config
+
+```typescript
+// app/users/page.tsx
+export const revalidate = 60; // Revalidate every 60 seconds
+export const dynamic = "force-static"; // Force static generation
+```
+
+## Usage
+
+### On-Demand Revalidation
+
+```typescript
+// In a Server Action or Route Handler
+import { revalidatePath, revalidateTag } from "next/cache";
+
+// Revalidate a specific page
+revalidatePath("/users");
+
+// Revalidate all pages using a tag
+revalidateTag("users");
+
+// Revalidate a layout (and all nested pages)
+revalidatePath("/dashboard", "layout");
+```
+
+### Webhook Revalidation
+
+```typescript
+// app/api/revalidate/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
+
+export async function POST(req: NextRequest) {
+  const secret = req.headers.get("x-revalidate-secret");
+  if (secret !== process.env.REVALIDATE_SECRET) {
+    return NextResponse.json({ error: "Invalid secret" }, { status: 401 });
+  }
+
+  const { tag } = await req.json();
+  revalidateTag(tag);
+
+  return NextResponse.json({ revalidated: true });
+}
+```
+
+## Troubleshooting
+
+### Cache not invalidating
+
+- Ensure you're calling `revalidateTag` or `revalidatePath` in a Server Action or Route Handler
+- Check that tags match exactly (they're case-sensitive)
+- Remember that `unstable_cache` caches are per-deployment
+
+### Stale data in development
+
+- Next.js caching behaves differently in dev mode
+- Use `next build && next start` to test production caching behavior

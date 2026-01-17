@@ -1,0 +1,295 @@
+# API Validation
+
+Type-safe request/response validation with Zod schemas. Catch invalid data at the API boundary before it causes issues.
+
+## The Problem
+
+Without proper validation:
+
+- Invalid data reaches your business logic
+- Runtime errors are cryptic and hard to debug
+- Types don't match reality at runtime
+- Security vulnerabilities from unvalidated input
+
+## The Solution
+
+Use Zod to validate and transform data at API boundaries.
+
+## Files
+
+```typescript title="lib/validations/user.ts"
+import { z } from "zod";
+
+export const createUserSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Password must contain an uppercase letter")
+    .regex(/[0-9]/, "Password must contain a number"),
+});
+
+export const updateUserSchema = z.object({
+  name: z.string().min(2).optional(),
+  email: z.string().email().optional(),
+});
+
+export const userParamsSchema = z.object({
+  id: z.string().cuid("Invalid user ID"),
+});
+
+export const listUsersSchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(20),
+  search: z.string().optional(),
+  sortBy: z.enum(["name", "email", "createdAt"]).default("createdAt"),
+  order: z.enum(["asc", "desc"]).default("desc"),
+});
+
+// Infer types from schemas
+export type CreateUserInput = z.infer<typeof createUserSchema>;
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type UserParams = z.infer<typeof userParamsSchema>;
+export type ListUsersQuery = z.infer<typeof listUsersSchema>;
+```
+
+```typescript title="lib/api-utils.ts"
+import { NextResponse } from "next/server";
+import { ZodError, ZodSchema } from "zod";
+
+export class ApiError extends Error {
+  constructor(
+    public message: string,
+    public status: number,
+    public code?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function parseBody<T>(schema: ZodSchema<T>, data: unknown): T {
+  try {
+    return schema.parse(data);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new ApiError("Validation failed", 400, "VALIDATION_ERROR");
+    }
+    throw error;
+  }
+}
+
+export function parseQuery<T>(schema: ZodSchema<T>, params: URLSearchParams): T {
+  const data = Object.fromEntries(params);
+  return parseBody(schema, data);
+}
+
+export function formatZodError(error: ZodError) {
+  return {
+    error: "Validation failed",
+    issues: error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      message: issue.message,
+    })),
+  };
+}
+
+export function handleError(error: unknown) {
+  console.error(error);
+
+  if (error instanceof ZodError) {
+    return NextResponse.json(formatZodError(error), { status: 400 });
+  }
+
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+  }
+
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+}
+```
+
+```typescript title="app/api/users/route.ts"
+import { NextResponse } from "next/server";
+import { createUserSchema, listUsersSchema } from "@/lib/validations/user";
+import { handleError } from "@/lib/api-utils";
+import { prisma } from "@/lib/db";
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const query = listUsersSchema.parse(Object.fromEntries(searchParams));
+
+    const { page, limit, search, sortBy, order } = query;
+
+    const users = await prisma.user.findMany({
+      where: search
+        ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" } },
+              { email: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : undefined,
+      orderBy: { [sortBy]: order },
+      skip: (page - 1) * limit,
+      take: limit,
+      select: { id: true, name: true, email: true, createdAt: true },
+    });
+
+    const total = await prisma.user.count({
+      where: search
+        ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" } },
+              { email: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : undefined,
+    });
+
+    return NextResponse.json({
+      data: users,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const data = createUserSchema.parse(body);
+
+    const user = await prisma.user.create({
+      data,
+      select: { id: true, name: true, email: true, createdAt: true },
+    });
+
+    return NextResponse.json(user, { status: 201 });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+```
+
+```typescript title="app/api/users/[id]/route.ts"
+import { NextResponse } from "next/server";
+import { userParamsSchema, updateUserSchema } from "@/lib/validations/user";
+import { handleError, ApiError } from "@/lib/api-utils";
+import { prisma } from "@/lib/db";
+
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = userParamsSchema.parse(await params);
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, createdAt: true },
+    });
+
+    if (!user) {
+      throw new ApiError("User not found", 404, "NOT_FOUND");
+    }
+
+    return NextResponse.json(user);
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = userParamsSchema.parse(await params);
+    const body = await request.json();
+    const data = updateUserSchema.parse(body);
+
+    const user = await prisma.user.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, email: true, createdAt: true },
+    });
+
+    return NextResponse.json(user);
+  } catch (error) {
+    return handleError(error);
+  }
+}
+```
+
+## Configuration
+
+### Common Validation Patterns
+
+```typescript
+// Email
+z.string().email();
+
+// URL
+z.string().url();
+
+// UUID
+z.string().uuid();
+
+// CUID
+z.string().cuid();
+
+// ISO date string
+z.string().datetime();
+
+// Enum
+z.enum(["active", "inactive", "pending"]);
+
+// Object with specific keys
+z.object({ name: z.string() }).strict();
+
+// Array with constraints
+z.array(z.string()).min(1).max(10);
+
+// Optional with default
+z.string().optional().default("default");
+
+// Transform
+z.string().transform((val) => val.toLowerCase());
+```
+
+## Usage
+
+### Client-Side Validation
+
+```typescript
+import { createUserSchema } from "@/lib/validations/user";
+
+function handleSubmit(formData: FormData) {
+  const result = createUserSchema.safeParse({
+    email: formData.get("email"),
+    name: formData.get("name"),
+    password: formData.get("password"),
+  });
+
+  if (!result.success) {
+    // Show validation errors
+    return result.error.issues;
+  }
+
+  // Submit validated data
+  await fetch("/api/users", {
+    method: "POST",
+    body: JSON.stringify(result.data),
+  });
+}
+```
+
+## Troubleshooting
+
+### TypeScript types not matching
+
+- Ensure you're using `z.infer<typeof schema>` for types
+- Check that optional fields use `.optional()` or `.nullable()`
+
+### Coercion not working
+
+- Use `z.coerce.number()` for query params (they're always strings)
+- Check the order of transforms in the schema chain

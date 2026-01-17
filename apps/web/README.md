@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/create-next-app).
+# Sinew Web
 
-## Getting Started
+Documentation website for Sinew patterns.
 
-First, run the development server:
+## Tech Stack
+
+- **Next.js 16** with App Router
+- **React 19**
+- **TypeScript 5.9**
+- **Tailwind CSS 4**
+- **Shiki** for syntax highlighting
+- **MDX** for pattern documentation
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# From repo root
+bun run dev
+
+# Or from this directory
+bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Runs at [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load Inter, a custom Google Font.
+```
+app/
+├── components/       # Reusable UI components
+├── lib/              # Utilities and pattern definitions
+├── patterns/         # Pattern pages ([category]/[slug])
+├── page.tsx          # Homepage
+└── layout.tsx        # Root layout
 
-## Learn More
+content/
+└── patterns/         # MDX pattern documentation
+    ├── database/
+    ├── auth/
+    └── ...
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Deployment
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Deployed to Vercel. See `vercel.json` for configuration.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# Build for production
+bun run build
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Start production server
+bun run start
+```

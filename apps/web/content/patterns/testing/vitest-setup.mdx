@@ -1,0 +1,252 @@
+# Vitest Setup
+
+Unit and integration testing with Vitest and React Testing Library. Fast, TypeScript-first testing with great DX.
+
+## The Problem
+
+Testing Next.js apps requires:
+
+- Fast test execution
+- TypeScript support without configuration
+- Mocking of Next.js internals
+- Component testing with React Testing Library
+- Coverage reporting
+
+## The Solution
+
+Vitest provides a modern, fast testing experience with excellent TypeScript support.
+
+## Files
+
+```typescript title="vitest.config.ts"
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+import tsconfigPaths from "vite-tsconfig-paths";
+
+export default defineConfig({
+  plugins: [react(), tsconfigPaths()],
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./vitest.setup.ts"],
+    include: ["**/*.test.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      exclude: ["node_modules/", "**/*.config.*", "**/*.d.ts"],
+    },
+  },
+});
+```
+
+```typescript title="vitest.setup.ts"
+import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi } from "vitest";
+
+// Cleanup after each test
+afterEach(() => {
+  cleanup();
+});
+
+// Mock Next.js router
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// Mock Next.js Image
+vi.mock("next/image", () => ({
+  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img {...props} alt={props.alt} />;
+  },
+}));
+```
+
+```typescript title="lib/test-utils.tsx"
+import { render, RenderOptions } from "@testing-library/react";
+import { ReactElement, ReactNode } from "react";
+
+// Add providers here if needed
+function AllProviders({ children }: { children: ReactNode }) {
+  return <>{children}</>;
+}
+
+function customRender(
+  ui: ReactElement,
+  options?: Omit<RenderOptions, "wrapper">
+) {
+  return render(ui, { wrapper: AllProviders, ...options });
+}
+
+export * from "@testing-library/react";
+export { customRender as render };
+```
+
+```typescript title="components/__tests__/button.test.tsx"
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@/lib/test-utils";
+import userEvent from "@testing-library/user-event";
+import { Button } from "../button";
+
+describe("Button", () => {
+  it("renders with text", () => {
+    render(<Button>Click me</Button>);
+    expect(screen.getByRole("button")).toHaveTextContent("Click me");
+  });
+
+  it("calls onClick when clicked", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+
+    render(<Button onClick={onClick}>Click me</Button>);
+    await user.click(screen.getByRole("button"));
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("is disabled when disabled prop is true", () => {
+    render(<Button disabled>Click me</Button>);
+    expect(screen.getByRole("button")).toBeDisabled();
+  });
+});
+```
+
+```typescript title="lib/__tests__/utils.test.ts"
+import { describe, it, expect } from "vitest";
+import { formatDate, slugify } from "../utils";
+
+describe("formatDate", () => {
+  it("formats a date correctly", () => {
+    const date = new Date("2024-01-15");
+    expect(formatDate(date)).toBe("January 15, 2024");
+  });
+});
+
+describe("slugify", () => {
+  it("converts string to slug", () => {
+    expect(slugify("Hello World")).toBe("hello-world");
+  });
+
+  it("handles special characters", () => {
+    expect(slugify("Hello! World?")).toBe("hello-world");
+  });
+});
+```
+
+```json title="package.json"
+{
+  "scripts": {
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  }
+}
+```
+
+## Configuration
+
+### Environment Variables in Tests
+
+```typescript
+// vitest.config.ts
+export default defineConfig({
+  test: {
+    env: {
+      DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+    },
+  },
+});
+```
+
+### Test Filtering
+
+```bash
+# Run specific test file
+bun test button.test.tsx
+
+# Run tests matching pattern
+bun test --testNamePattern="formats date"
+
+# Run tests in watch mode
+bun test --watch
+```
+
+## Usage
+
+### Testing Async Code
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { fetchUser } from "../api";
+
+describe("fetchUser", () => {
+  it("returns user data", async () => {
+    const user = await fetchUser("123");
+    expect(user).toHaveProperty("id", "123");
+    expect(user).toHaveProperty("email");
+  });
+});
+```
+
+### Mocking Modules
+
+```typescript
+import { vi, describe, it, expect } from "vitest";
+
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    user: {
+      findUnique: vi.fn().mockResolvedValue({ id: "1", name: "Test" }),
+    },
+  },
+}));
+
+describe("getUser", () => {
+  it("returns user from database", async () => {
+    const user = await getUser("1");
+    expect(user).toEqual({ id: "1", name: "Test" });
+  });
+});
+```
+
+### Testing Hooks
+
+```typescript
+import { renderHook, act } from "@testing-library/react";
+import { useCounter } from "../use-counter";
+
+describe("useCounter", () => {
+  it("increments count", () => {
+    const { result } = renderHook(() => useCounter());
+
+    act(() => {
+      result.current.increment();
+    });
+
+    expect(result.current.count).toBe(1);
+  });
+});
+```
+
+## Troubleshooting
+
+### Tests running slowly
+
+- Use `--pool=forks` for CPU-intensive tests
+- Run tests in parallel with `--pool=threads`
+- Skip slow tests in watch mode with `.skip`
+
+### Module resolution errors
+
+- Ensure `tsconfigPaths` plugin is configured
+- Check that path aliases match `tsconfig.json`
+- Clear Vitest cache: `bun test --clearCache`

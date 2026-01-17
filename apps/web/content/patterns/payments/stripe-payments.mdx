@@ -1,0 +1,215 @@
+# Stripe Payments
+
+Complete Stripe integration with checkout sessions, webhook handling, and subscription management.
+
+## The Problem
+
+Implementing payments correctly requires:
+
+- Secure checkout flow
+- Webhook verification
+- Subscription lifecycle management
+- Idempotent operations
+- Error handling and retries
+
+## The Solution
+
+Use Stripe Checkout for the payment flow and webhooks for server-side updates.
+
+## Files
+
+```typescript title="lib/stripe.ts"
+import Stripe from "stripe";
+
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-11-20.acacia",
+  typescript: true,
+});
+```
+
+```typescript title="app/api/checkout/route.ts"
+import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { stripe } from "@/lib/stripe";
+
+export async function POST(req: Request) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { priceId } = await req.json();
+
+  const checkoutSession = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    payment_method_types: ["card"],
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?success=true`,
+    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pricing?canceled=true`,
+    customer_email: session.user.email!,
+    metadata: {
+      userId: session.user.id,
+    },
+  });
+
+  return NextResponse.json({ url: checkoutSession.url });
+}
+```
+
+```typescript title="app/api/webhooks/stripe/route.ts"
+import { headers } from "next/headers";
+import { NextResponse } from "next/server";
+import { stripe } from "@/lib/stripe";
+import { prisma } from "@/lib/db";
+
+export async function POST(req: Request) {
+  const body = await req.text();
+  const headersList = await headers();
+  const signature = headersList.get("stripe-signature")!;
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!);
+  } catch (err) {
+    console.error("Webhook signature verification failed");
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  }
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const session = event.data.object;
+      await prisma.user.update({
+        where: { id: session.metadata?.userId },
+        data: {
+          stripeCustomerId: session.customer as string,
+          stripeSubscriptionId: session.subscription as string,
+          plan: "pro",
+        },
+      });
+      break;
+    }
+
+    case "customer.subscription.deleted": {
+      const subscription = event.data.object;
+      await prisma.user.update({
+        where: { stripeCustomerId: subscription.customer as string },
+        data: { plan: "free", stripeSubscriptionId: null },
+      });
+      break;
+    }
+
+    case "invoice.payment_failed": {
+      const invoice = event.data.object;
+      // Handle failed payment - notify user, retry, etc.
+      console.log("Payment failed for customer:", invoice.customer);
+      break;
+    }
+  }
+
+  return NextResponse.json({ received: true });
+}
+```
+
+```typescript title="components/checkout-button.tsx"
+"use client";
+
+import { useState } from "react";
+
+export function CheckoutButton({ priceId }: { priceId: string }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleCheckout = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priceId }),
+      });
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch (error) {
+      console.error("Checkout error:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button onClick={handleCheckout} disabled={loading}>
+      {loading ? "Loading..." : "Subscribe"}
+    </button>
+  );
+}
+```
+
+```bash title=".env.example"
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+STRIPE_PRICE_ID="price_..."
+
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+```
+
+## Configuration
+
+### Webhook Setup
+
+1. Install the Stripe CLI: `brew install stripe/stripe-cli/stripe`
+2. Forward webhooks locally: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
+3. Copy the webhook signing secret to `.env`
+
+### Required Webhook Events
+
+- `checkout.session.completed`
+- `customer.subscription.deleted`
+- `customer.subscription.updated`
+- `invoice.payment_failed`
+- `invoice.payment_succeeded`
+
+## Usage
+
+### Create a Checkout Session
+
+```typescript
+const response = await fetch("/api/checkout", {
+  method: "POST",
+  body: JSON.stringify({ priceId: "price_xxx" }),
+});
+const { url } = await response.json();
+window.location.href = url;
+```
+
+### Check Subscription Status
+
+```typescript
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+
+export async function getSubscription() {
+  const session = await auth();
+  if (!session?.user) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { plan: true, stripeSubscriptionId: true },
+  });
+
+  return user;
+}
+```
+
+## Troubleshooting
+
+### Webhook signature verification failed
+
+- Make sure you're using the correct webhook secret
+- Check that the raw request body is being passed (not parsed JSON)
+- Verify the endpoint is receiving POST requests
+
+### Checkout session not creating
+
+- Verify your Stripe API key is correct
+- Check that the price ID exists in your Stripe dashboard
+- Ensure the success/cancel URLs are valid

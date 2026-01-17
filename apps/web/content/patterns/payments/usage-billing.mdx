@@ -1,0 +1,295 @@
+# Usage-Based Billing
+
+Metered billing with Stripe. Track usage, report to Stripe, and charge customers based on consumption.
+
+## The Problem
+
+Fixed pricing doesn't work for all products:
+
+- API calls, storage, compute vary by customer
+- Customers want to pay for what they use
+- Tracking and billing usage is complex
+
+## The Solution
+
+Use Stripe's metered billing to track usage and automatically charge customers at the end of each billing period.
+
+## Files
+
+```typescript title="lib/stripe.ts"
+import Stripe from "stripe";
+
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-12-18.acacia",
+  typescript: true,
+});
+```
+
+```typescript title="lib/usage.ts"
+import { stripe } from "./stripe";
+import { prisma } from "./db";
+
+interface UsageEvent {
+  customerId: string;
+  quantity: number;
+  action: string;
+  timestamp?: Date;
+}
+
+export async function recordUsage({ customerId, quantity, action, timestamp }: UsageEvent) {
+  // Get user's subscription item for metered billing
+  const user = await prisma.user.findUnique({
+    where: { id: customerId },
+    include: { subscription: true },
+  });
+
+  if (!user?.subscription?.stripeSubscriptionItemId) {
+    console.warn(`No subscription item for user ${customerId}`);
+    return;
+  }
+
+  // Report usage to Stripe
+  await stripe.subscriptionItems.createUsageRecord(user.subscription.stripeSubscriptionItemId, {
+    quantity,
+    timestamp: timestamp ? Math.floor(timestamp.getTime() / 1000) : "now",
+    action: "increment",
+  });
+
+  // Log for internal tracking
+  await prisma.usageLog.create({
+    data: {
+      userId: customerId,
+      action,
+      quantity,
+      timestamp: timestamp || new Date(),
+    },
+  });
+}
+
+export async function getUsageSummary(customerId: string, startDate: Date, endDate: Date) {
+  const logs = await prisma.usageLog.findMany({
+    where: {
+      userId: customerId,
+      timestamp: {
+        gte: startDate,
+        lte: endDate,
+      },
+    },
+  });
+
+  const summary = logs.reduce(
+    (acc, log) => {
+      acc[log.action] = (acc[log.action] || 0) + log.quantity;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+
+  const total = logs.reduce((sum, log) => sum + log.quantity, 0);
+
+  return { summary, total, logs };
+}
+
+export async function getCurrentPeriodUsage(customerId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: customerId },
+    include: { subscription: true },
+  });
+
+  if (!user?.subscription?.stripeSubscriptionId) {
+    return { total: 0, summary: {} };
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(user.subscription.stripeSubscriptionId);
+
+  const periodStart = new Date(subscription.current_period_start * 1000);
+  const periodEnd = new Date(subscription.current_period_end * 1000);
+
+  return getUsageSummary(customerId, periodStart, periodEnd);
+}
+```
+
+```typescript title="lib/metered-middleware.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "./auth";
+import { recordUsage } from "./usage";
+
+type UsageConfig = {
+  action: string;
+  quantity: number | ((req: NextRequest) => number);
+};
+
+export function withUsageTracking(config: UsageConfig) {
+  return function <T extends unknown[]>(
+    handler: (req: NextRequest, ...args: T) => Promise<NextResponse>
+  ) {
+    return async (req: NextRequest, ...args: T): Promise<NextResponse> => {
+      const session = await auth();
+
+      if (!session?.user?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      // Execute the handler first
+      const response = await handler(req, ...args);
+
+      // Only track usage for successful requests
+      if (response.ok) {
+        const quantity =
+          typeof config.quantity === "function" ? config.quantity(req) : config.quantity;
+
+        await recordUsage({
+          customerId: session.user.id,
+          quantity,
+          action: config.action,
+        });
+      }
+
+      return response;
+    };
+  };
+}
+```
+
+```typescript title="app/api/ai/generate/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { withUsageTracking } from "@/lib/metered-middleware";
+import { generateText } from "@/lib/ai";
+
+const handler = async (req: NextRequest) => {
+  const { prompt } = await req.json();
+
+  const result = await generateText(prompt);
+
+  return NextResponse.json({
+    text: result.text,
+    tokens: result.usage.totalTokens,
+  });
+};
+
+// Track 1 API call per request
+export const POST = withUsageTracking({
+  action: "api_call",
+  quantity: 1,
+})(handler);
+```
+
+```typescript title="app/api/usage/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { getCurrentPeriodUsage } from "@/lib/usage";
+
+export async function GET(req: NextRequest) {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const usage = await getCurrentPeriodUsage(session.user.id);
+
+  return NextResponse.json(usage);
+}
+```
+
+```typescript title="components/usage-dashboard.tsx"
+"use client";
+
+import { useEffect, useState } from "react";
+
+interface UsageData {
+  total: number;
+  summary: Record<string, number>;
+}
+
+export function UsageDashboard() {
+  const [usage, setUsage] = useState<UsageData | null>(null);
+
+  useEffect(() => {
+    fetch("/api/usage")
+      .then((res) => res.json())
+      .then(setUsage);
+  }, []);
+
+  if (!usage) return <div>Loading...</div>;
+
+  return (
+    <div className="p-6 rounded-xl border border-border">
+      <h2 className="text-xl font-semibold">Current Period Usage</h2>
+      <div className="mt-4">
+        <p className="text-3xl font-bold">{usage.total.toLocaleString()}</p>
+        <p className="text-muted">API calls</p>
+      </div>
+      <div className="mt-4 space-y-2">
+        {Object.entries(usage.summary).map(([action, count]) => (
+          <div key={action} className="flex justify-between">
+            <span className="text-muted">{action}</span>
+            <span>{count.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+## Configuration
+
+### Stripe Metered Product
+
+1. Create a product in Stripe Dashboard
+2. Add a price with "Usage-based" billing
+3. Set the metering mode (sum, last reported, max)
+4. Use the price ID when creating subscriptions
+
+### Creating a Metered Subscription
+
+```typescript
+const subscription = await stripe.subscriptions.create({
+  customer: customerId,
+  items: [{ price: "price_metered_xxxxx" }],
+  payment_behavior: "default_incomplete",
+});
+
+// Save subscription item ID for reporting usage
+const subscriptionItemId = subscription.items.data[0].id;
+```
+
+## Usage
+
+### Track Usage in API Routes
+
+```typescript
+import { recordUsage } from "@/lib/usage";
+
+// After processing a request
+await recordUsage({
+  customerId: userId,
+  quantity: tokensUsed,
+  action: "tokens",
+});
+```
+
+### Track Storage Usage
+
+```typescript
+// When user uploads a file
+await recordUsage({
+  customerId: userId,
+  quantity: fileSizeInMB,
+  action: "storage",
+});
+```
+
+## Troubleshooting
+
+### Usage not appearing in Stripe
+
+- Verify subscription item ID is correct
+- Check that usage is reported before billing period ends
+- Use Stripe's test clock for testing
+
+### Duplicate usage records
+
+- Implement idempotency keys for critical usage events
+- Use database transactions to prevent race conditions

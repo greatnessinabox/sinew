@@ -1,0 +1,236 @@
+# Resend Email
+
+Transactional email with Resend and React Email templates. Modern email infrastructure with a great developer experience.
+
+## The Problem
+
+Sending emails from your app is harder than it should be:
+
+- SMTP configuration is complex and unreliable
+- Email templates are hard to build and test
+- Delivery rates and tracking are opaque
+- Testing emails in development is tedious
+
+## The Solution
+
+Use Resend for reliable email delivery with React Email for building templates using familiar React components.
+
+## Files
+
+```typescript title="lib/email.ts"
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+interface SendEmailOptions {
+  to: string | string[];
+  subject: string;
+  react?: React.ReactElement;
+  html?: string;
+  text?: string;
+  from?: string;
+  replyTo?: string;
+}
+
+const DEFAULT_FROM = process.env.EMAIL_FROM || "noreply@example.com";
+
+export async function sendEmail({
+  to,
+  subject,
+  react,
+  html,
+  text,
+  from = DEFAULT_FROM,
+  replyTo,
+}: SendEmailOptions) {
+  const { data, error } = await resend.emails.send({
+    from,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    react,
+    html,
+    text,
+    replyTo,
+  });
+
+  if (error) {
+    console.error("Failed to send email:", error);
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+
+  return data;
+}
+
+export async function sendBatchEmails(emails: SendEmailOptions[]) {
+  const results = await Promise.allSettled(emails.map((email) => sendEmail(email)));
+
+  const failed = results.filter((r) => r.status === "rejected");
+  if (failed.length > 0) {
+    console.error(`Failed to send ${failed.length} emails`);
+  }
+
+  return results;
+}
+```
+
+```typescript title="emails/welcome.tsx"
+import {
+  Body,
+  Button,
+  Container,
+  Head,
+  Heading,
+  Html,
+  Link,
+  Preview,
+  Section,
+  Text,
+} from "@react-email/components";
+
+interface WelcomeEmailProps {
+  name: string;
+  loginUrl?: string;
+}
+
+export function WelcomeEmail({
+  name,
+  loginUrl = "https://example.com/login",
+}: WelcomeEmailProps) {
+  return (
+    <Html>
+      <Head />
+      <Preview>Welcome to our platform!</Preview>
+      <Body style={main}>
+        <Container style={container}>
+          <Heading style={h1}>Welcome, {name}!</Heading>
+          <Text style={text}>
+            We're excited to have you on board. Get started by exploring
+            your dashboard.
+          </Text>
+          <Section style={buttonContainer}>
+            <Button style={button} href={loginUrl}>
+              Go to Dashboard
+            </Button>
+          </Section>
+          <Text style={footer}>
+            If you have any questions, reply to this email or contact us at{" "}
+            <Link href="mailto:support@example.com">support@example.com</Link>
+          </Text>
+        </Container>
+      </Body>
+    </Html>
+  );
+}
+
+const main = {
+  backgroundColor: "#f6f9fc",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+};
+
+const container = {
+  backgroundColor: "#ffffff",
+  margin: "0 auto",
+  padding: "40px 20px",
+  maxWidth: "560px",
+  borderRadius: "8px",
+};
+
+const h1 = { color: "#1a1a1a", fontSize: "24px", fontWeight: "600", margin: "0 0 20px" };
+const text = { color: "#4a4a4a", fontSize: "16px", lineHeight: "24px", margin: "0 0 20px" };
+const buttonContainer = { textAlign: "center" as const, margin: "30px 0" };
+const button = {
+  backgroundColor: "#e85a2c",
+  borderRadius: "6px",
+  color: "#ffffff",
+  fontSize: "16px",
+  fontWeight: "600",
+  padding: "12px 24px",
+  textDecoration: "none",
+};
+const footer = { color: "#8a8a8a", fontSize: "14px", margin: "40px 0 0" };
+
+export default WelcomeEmail;
+```
+
+```typescript title="app/api/auth/send-welcome/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { sendEmail } from "@/lib/email";
+import { WelcomeEmail } from "@/emails/welcome";
+
+export async function POST(req: NextRequest) {
+  const { email, name } = await req.json();
+
+  try {
+    await sendEmail({
+      to: email,
+      subject: "Welcome to Our Platform!",
+      react: WelcomeEmail({ name, loginUrl: "https://example.com/login" }),
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Failed to send welcome email:", error);
+    return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
+  }
+}
+```
+
+```bash title=".env.example"
+RESEND_API_KEY="re_xxxxx"
+EMAIL_FROM="Your App <noreply@yourdomain.com>"
+```
+
+## Configuration
+
+### Setting up Resend
+
+1. Create an account at [resend.com](https://resend.com)
+2. Add and verify your domain
+3. Create an API key and add it to your environment variables
+
+### Previewing Emails
+
+Use the React Email dev server to preview templates:
+
+```bash
+npx email dev
+```
+
+## Usage
+
+### Sending a Simple Email
+
+```typescript
+import { sendEmail } from "@/lib/email";
+import { WelcomeEmail } from "@/emails/welcome";
+
+await sendEmail({
+  to: "user@example.com",
+  subject: "Welcome!",
+  react: WelcomeEmail({ name: "John" }),
+});
+```
+
+### Sending to Multiple Recipients
+
+```typescript
+await sendEmail({
+  to: ["user1@example.com", "user2@example.com"],
+  subject: "Newsletter",
+  html: "<p>Your newsletter content</p>",
+});
+```
+
+## Troubleshooting
+
+### Emails not delivering
+
+- Verify your domain in the Resend dashboard
+- Check that your API key is correct
+- Review the Resend logs for delivery status
+
+### Email appearing in spam
+
+- Set up SPF, DKIM, and DMARC records
+- Avoid spam trigger words in subject lines
+- Include an unsubscribe link for marketing emails

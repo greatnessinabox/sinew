@@ -1,0 +1,101 @@
+{
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "eslint.workingDirectories": [
+    {
+      "mode": "auto"
+    }
+  ],
+  "editor.codeActionWidget.includeNearbyQuickFixes": true,
+  "typescript.tsdk": "node_modules/typescript/lib", // Use the workspace version of TypeScript
+  "typescript.enablePromptUseWorkspaceTsdk": true, // For security reasons it's require that users opt into using the workspace version of typescript
+  "typescript.preferences.autoImportFileExcludePatterns": [
+    // useRouter should be imported from `next/navigation` instead of `next/router`
+    "next/router.d.ts",
+    "next/dist/client/router.d.ts",
+    // give priority for Link to next/link instead of lucide-react
+    "lucide-react"
+  ],
+  "typescript.preferences.preferTypeOnlyAutoImports": true, // Prefer type-only imports
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "always",
+    "source.organizeImports": "always",
+    "source.fixAll.eslint": "always",
+    "source.addMissingImports.ts": "always",
+    "source.fixAll.ts": "always"
+    // "source.removeUnusedImports": "explicit"
+  },
+  "workbench.editor.customLabels.patterns": {
+    "**/app/**/[[]*[]]/[[]*[]]/page.tsx": "${dirname(2)}/${dirname(1)}/${dirname} • page",
+    "**/app/**/[[]*[]]/page.tsx": "${dirname(1)}/${dirname} • page",
+    "**/app/**/page.tsx": "${dirname} • page",
+
+    "**/app/**/[[]*[]]/[[]*[]]/default.tsx": "${dirname(2)}/${dirname(1)}/${dirname} • default",
+    "**/app/**/[[]*[]]/default.tsx": "${dirname(1)}/${dirname} • default",
+    "**/app/**/default.tsx": "${dirname} • default",
+
+    "**/app/**/[[]*[]]/[[]*[]]/layout.tsx": "${dirname(2)}/${dirname(1)}/${dirname} • layout",
+    "**/app/**/[[]*[]]/layout.tsx": "${dirname(1)}/${dirname} • layout",
+    "**/app/**/layout.tsx": "${dirname} • layout",
+
+    "**/app/**/[[]*[]]/[[]*[]]/template.tsx": "${dirname(2)}/${dirname(1)}/${dirname} • template",
+    "**/app/**/[[]*[]]/template.tsx": "${dirname(1)}/${dirname} • template",
+    "**/app/**/template.tsx": "${dirname} • template",
+
+    "**/app/**/[[]*[]]/[[]*[]]/error.tsx": "${dirname(2)}/${dirname(1)}/${dirname} • error",
+    "**/app/**/[[]*[]]/error.tsx": "${dirname(1)}/${dirname} • error",
+    "**/app/**/error.tsx": "${dirname} • error"
+  },
+  "eslint.rules.customizations": [
+    { "rule": "style/*", "severity": "off", "fixable": true },
+    { "rule": "format/*", "severity": "off", "fixable": true },
+    { "rule": "*-indent", "severity": "off", "fixable": true },
+    { "rule": "*-spacing", "severity": "off", "fixable": true },
+    { "rule": "*-spaces", "severity": "off", "fixable": true },
+    { "rule": "*-order", "severity": "off", "fixable": true },
+    { "rule": "*-dangle", "severity": "off", "fixable": true },
+    { "rule": "*-newline", "severity": "off", "fixable": true },
+    { "rule": "*quotes", "severity": "off", "fixable": true },
+    { "rule": "*semi", "severity": "off", "fixable": true }
+  ],
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+  // Enable eslint for all supported languages
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact",
+    "vue",
+    "html",
+    "markdown",
+    "json",
+    "jsonc",
+    "yaml",
+    "toml",
+    "xml",
+    "gql",
+    "graphql",
+    "astro",
+    "svelte",
+    "css",
+    "less",
+    "scss",
+    "pcss",
+    "postcss"
+  ],
+  "css.customData": [".vscode/tailwind.json"],
+  // activates tailwindcss intellisense for libraries
+  "editor.quickSuggestions": {
+    "strings": true
+  },
+  "css.validate": false,
+  "editor.inlineSuggest.enabled": true,
+  // adds tailwindcss intellisense support within cva function calls
+  "tailwindCSS.experimental.classRegex": [
+    ["cn\\(((?:[^()]|\\([^()]*\\))*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+    ["clsx\\(((?:[^()]|\\([^()]*\\))*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+  ]
+}

@@ -1,0 +1,133 @@
+# Connection Pooling
+
+Database connection pooling is essential for serverless environments where each request might spawn a new function instance. Without pooling, you'll quickly exhaust your database connection limits.
+
+## The Problem
+
+In traditional server environments, you maintain a pool of database connections that get reused across requests. In serverless:
+
+- Each function invocation might create a new connection
+- Cold starts create fresh connections
+- Connections aren't shared across function instances
+- You can easily hit PostgreSQL's default 100 connection limit
+
+## The Solution
+
+Use a connection pooler like PgBouncer or Prisma Accelerate to manage connections externally.
+
+## Files
+
+```typescript title="lib/db.ts"
+import { PrismaClient } from "@prisma/client";
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+  });
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
+```
+
+```typescript title="lib/db-edge.ts"
+import { PrismaClient } from "@prisma/client/edge";
+import { withAccelerate } from "@prisma/extension-accelerate";
+
+export const prisma = new PrismaClient().$extends(withAccelerate());
+```
+
+```prisma title="prisma/schema.prisma"
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+
+```bash title=".env.example"
+# Pooled connection (use for application)
+DATABASE_URL="postgresql://user:password@pooler.example.com:6543/mydb?pgbouncer=true"
+
+# Direct connection (use for migrations)
+DIRECT_URL="postgresql://user:password@db.example.com:5432/mydb"
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable       | Description                                        |
+| -------------- | -------------------------------------------------- |
+| `DATABASE_URL` | Pooled connection string for your application      |
+| `DIRECT_URL`   | Direct connection for migrations and introspection |
+
+### Connection String Parameters
+
+Add these to your pooled connection string:
+
+- `pgbouncer=true` - Enables PgBouncer compatibility mode
+- `connection_limit=1` - Limits connections per serverless instance
+
+## Usage
+
+```typescript
+// In your API routes or server components
+import { prisma } from "@/lib/db";
+
+export async function getUsers() {
+  return prisma.user.findMany();
+}
+```
+
+## Edge Runtime
+
+For edge functions (Vercel Edge, Cloudflare Workers), use the edge client with Accelerate:
+
+```typescript
+import { prisma } from "@/lib/db-edge";
+
+export const runtime = "edge";
+
+export async function GET() {
+  const users = await prisma.user.findMany({
+    cacheStrategy: { ttl: 60 }, // Cache for 60 seconds
+  });
+  return Response.json(users);
+}
+```
+
+## Troubleshooting
+
+### "Too many connections" error
+
+You're hitting your database connection limit. Solutions:
+
+1. Use a connection pooler (PgBouncer, Prisma Accelerate, Supavisor)
+2. Reduce `connection_limit` in your connection string
+3. Increase your database's max connections (if self-hosted)
+
+### Slow cold starts
+
+The Prisma Client initialization adds ~200-500ms to cold starts. Mitigations:
+
+1. Use Prisma Accelerate for edge caching
+2. Keep functions warm with scheduled pings
+3. Use smaller Prisma Client bundles with `output` configuration

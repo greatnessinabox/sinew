@@ -1,0 +1,45 @@
+{
+  "name": "sinew",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CLI for adding infrastructure patterns to your project",
+  "bin": {
+    "sinew": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "dev": "bun run ./src/index.ts",
+    "lint": "eslint src --max-warnings 0",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sinew/registry": "*",
+    "commander": "^13.0.0",
+    "picocolors": "^1.1.1",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "*",
+    "@repo/typescript-config": "*",
+    "@types/prompts": "^2.4.9",
+    "typescript": "5.9.2"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "cli",
+    "infrastructure",
+    "patterns",
+    "database",
+    "auth",
+    "deployment"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/greatnessinabox/sinew"
+  },
+  "license": "MIT"
+}

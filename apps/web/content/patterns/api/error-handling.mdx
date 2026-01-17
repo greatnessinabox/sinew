@@ -1,0 +1,260 @@
+# Error Handling
+
+Consistent API error handling with custom error classes, error boundaries, and structured error responses.
+
+## The Problem
+
+Inconsistent error handling leads to poor user experiences and makes debugging difficult:
+
+- Some endpoints return detailed errors while others return generic 500s
+- Stack traces leak to clients in production
+- No standardized error format for frontend consumption
+- Different error types need different HTTP status codes
+
+## The Solution
+
+Create custom error classes that extend a base `AppError` class. Each error type carries its own status code and error code, making error handling declarative.
+
+Use a `withErrorHandler` wrapper to catch all errors and convert them to consistent JSON responses.
+
+## Files
+
+```typescript title="lib/errors.ts"
+export class AppError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 500,
+    public code: string = "INTERNAL_ERROR"
+  ) {
+    super(message);
+    this.name = "AppError";
+  }
+
+  toJSON() {
+    return {
+      error: this.code,
+      message: this.message,
+      statusCode: this.statusCode,
+    };
+  }
+}
+
+export class NotFoundError extends AppError {
+  constructor(resource: string = "Resource") {
+    super(`${resource} not found`, 404, "NOT_FOUND");
+    this.name = "NotFoundError";
+  }
+}
+
+export class UnauthorizedError extends AppError {
+  constructor(message: string = "Authentication required") {
+    super(message, 401, "UNAUTHORIZED");
+    this.name = "UnauthorizedError";
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message: string = "Access denied") {
+    super(message, 403, "FORBIDDEN");
+    this.name = "ForbiddenError";
+  }
+}
+
+export class ValidationError extends AppError {
+  constructor(
+    message: string = "Validation failed",
+    public details?: Record<string, string[]>
+  ) {
+    super(message, 400, "VALIDATION_ERROR");
+    this.name = "ValidationError";
+  }
+
+  toJSON() {
+    return {
+      ...super.toJSON(),
+      details: this.details,
+    };
+  }
+}
+
+export class ConflictError extends AppError {
+  constructor(message: string = "Resource already exists") {
+    super(message, 409, "CONFLICT");
+    this.name = "ConflictError";
+  }
+}
+
+export class RateLimitError extends AppError {
+  constructor(retryAfter?: number) {
+    super("Too many requests", 429, "RATE_LIMITED");
+    this.name = "RateLimitError";
+  }
+}
+```
+
+```typescript title="lib/api/error-handler.ts"
+import { NextResponse } from "next/server";
+import { AppError } from "@/lib/errors";
+import { ZodError } from "zod";
+
+interface ErrorResponse {
+  error: string;
+  message: string;
+  details?: unknown;
+}
+
+export function handleApiError(error: unknown): NextResponse<ErrorResponse> {
+  console.error("API Error:", error);
+
+  if (error instanceof AppError) {
+    return NextResponse.json(error.toJSON(), { status: error.statusCode });
+  }
+
+  if (error instanceof ZodError) {
+    return NextResponse.json(
+      {
+        error: "VALIDATION_ERROR",
+        message: "Invalid request data",
+        details: error.flatten().fieldErrors,
+      },
+      { status: 400 }
+    );
+  }
+
+  // Handle Prisma errors
+  if (error && typeof error === "object" && "code" in error) {
+    const dbError = error as { code: string };
+
+    if (dbError.code === "P2002") {
+      return NextResponse.json(
+        { error: "CONFLICT", message: "A record with this value already exists" },
+        { status: 409 }
+      );
+    }
+
+    if (dbError.code === "P2025") {
+      return NextResponse.json(
+        { error: "NOT_FOUND", message: "Record not found" },
+        { status: 404 }
+      );
+    }
+  }
+
+  return NextResponse.json(
+    { error: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+    { status: 500 }
+  );
+}
+
+export function withErrorHandler<T extends unknown[]>(
+  handler: (...args: T) => Promise<NextResponse>
+) {
+  return async (...args: T): Promise<NextResponse> => {
+    try {
+      return await handler(...args);
+    } catch (error) {
+      return handleApiError(error);
+    }
+  };
+}
+```
+
+```typescript title="app/api/example/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { withErrorHandler } from "@/lib/api/error-handler";
+import { NotFoundError, ValidationError } from "@/lib/errors";
+
+export const GET = withErrorHandler(async (req: NextRequest) => {
+  const id = req.nextUrl.searchParams.get("id");
+
+  if (!id) {
+    throw new ValidationError("Missing required parameter: id");
+  }
+
+  const item = null; // await db.item.findUnique({ where: { id } });
+
+  if (!item) {
+    throw new NotFoundError("Item");
+  }
+
+  return NextResponse.json({ data: item });
+});
+```
+
+```typescript title="app/error.tsx"
+"use client";
+
+import { useEffect } from "react";
+
+export default function Error({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  useEffect(() => {
+    console.error("Page Error:", error);
+  }, [error]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold">Something went wrong</h1>
+        <p className="mt-2 text-muted-foreground">
+          {error.message || "An unexpected error occurred"}
+        </p>
+        <button
+          onClick={reset}
+          className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+```
+
+## Usage
+
+### Throwing Errors in API Routes
+
+```typescript
+import { NotFoundError, UnauthorizedError } from "@/lib/errors";
+
+// In an API route
+if (!session) {
+  throw new UnauthorizedError();
+}
+
+const user = await db.user.findUnique({ where: { id } });
+if (!user) {
+  throw new NotFoundError("User");
+}
+```
+
+### Handling Errors on the Frontend
+
+```typescript
+const response = await fetch("/api/users/123");
+const data = await response.json();
+
+if (!response.ok) {
+  // data.error contains the error code
+  // data.message contains human-readable message
+  if (data.error === "NOT_FOUND") {
+    // Handle not found
+  }
+}
+```
+
+## Troubleshooting
+
+### Stack traces appearing in production
+
+Make sure you're not passing the original error message to clients. The `handleApiError` function returns generic messages for unknown errors.
+
+### Error boundaries not catching errors
+
+Error boundaries only work for client components. Server component errors need to be caught differently or will show the error.tsx page.

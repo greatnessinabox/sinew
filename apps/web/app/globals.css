@@ -1,50 +1,225 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@import "tailwindcss";
+
+@theme {
+  /* Typography */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Sinew Color Palette - Dark Mode (default) */
+  --color-background: #0a0a0a;
+  --color-foreground: #e8e8e8;
+  --color-muted: #808080;
+  --color-muted-foreground: #9a9a9a;
+  --color-border: #222222;
+  --color-accent: #e85a2c;
+  --color-accent-secondary: #d14a2a;
+  --color-accent-foreground: #ffffff;
+  --color-surface: #121212;
+  --color-card: #151515;
+  --color-code-bg: #0d0d0d;
+
+  /* Fiber color for patterns */
+  --color-fiber: #e85a2c;
+
+  /* Semantic colors */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Light mode overrides */
+.light {
+  --color-background: #fafafa;
+  --color-foreground: #171717;
+  --color-muted: #737373;
+  --color-muted-foreground: #525252;
+  --color-border: #e5e5e5;
+  --color-accent: #dc4a1a;
+  --color-accent-secondary: #c43a10;
+  --color-accent-foreground: #ffffff;
+  --color-surface: #ffffff;
+  --color-card: #ffffff;
+  --color-code-bg: #f5f5f5;
+  --color-fiber: #dc4a1a;
 }
 
-html,
+/* Dark mode explicit (for system preference) */
+.dark {
+  --color-background: #0a0a0a;
+  --color-foreground: #e8e8e8;
+  --color-muted: #808080;
+  --color-muted-foreground: #9a9a9a;
+  --color-border: #222222;
+  --color-accent: #e85a2c;
+  --color-accent-secondary: #d14a2a;
+  --color-accent-foreground: #ffffff;
+  --color-surface: #121212;
+  --color-card: #151515;
+  --color-code-bg: #0d0d0d;
+  --color-fiber: #e85a2c;
+}
+
+html {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
+  font-family: var(--font-sans);
+  line-height: 1.6;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
+/* Typography enhancements */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
-* {
-  box-sizing: border-box;
+code, pre {
+  font-family: var(--font-mono);
+}
+
+/* Selection */
+::selection {
+  background-color: var(--color-accent);
+  color: white;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Code block styling */
+pre code {
+  display: block;
+  line-height: 1.5;
+}
+
+/* Shiki code blocks */
+pre.shiki {
+  background-color: var(--color-code-bg) !important;
   padding: 0;
   margin: 0;
+  line-height: 1.5;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+pre.shiki code {
+  counter-reset: line;
 }
 
-.imgDark {
-  display: none;
+/* Ensure consistent line spacing */
+pre.shiki .line {
+  display: inline;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+pre.shiki .line:empty::before {
+  content: " ";
+}
 
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+/* Fiber decoration lines - used throughout site */
+.fiber-line {
+  background: linear-gradient(90deg, transparent, var(--color-fiber), transparent);
+  opacity: 0.3;
+}
+
+.fiber-line-vertical {
+  background: linear-gradient(180deg, transparent, var(--color-fiber), transparent);
+  opacity: 0.2;
+}
+
+/* Beautiful focus rings with accent glow */
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-background),
+    0 0 0 4px var(--color-accent),
+    0 0 12px 0 rgba(232, 90, 44, 0.3);
+}
+
+/* Skip focus ring on mouse clicks for buttons */
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Terminal cursor blink animation */
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* Typing animation for terminal effect */
+@keyframes typing {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+.typing-effect {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: typing 2s steps(40, end);
+}
+
+/* Smooth scroll for anchor links */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Anchor link offset for fixed header */
+:target {
+  scroll-margin-top: 100px;
+}
+
+/* Diff styling for code blocks */
+.diff-add {
+  background-color: rgba(34, 197, 94, 0.15);
+  border-left: 3px solid var(--color-success);
+}
+
+.diff-remove {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-left: 3px solid var(--color-error);
+}
+
+/* Fade in animation */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* sr-only utility for skip links */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }

@@ -1,0 +1,241 @@
+# Redis Cache
+
+Redis caching with Upstash. Includes cache utilities, automatic serialization, and cache invalidation patterns.
+
+## The Problem
+
+Database queries and external API calls are slow and expensive:
+
+- Repeated queries for the same data
+- Cold cache after deployments
+- Manual cache invalidation is error-prone
+- No visibility into cache performance
+
+## The Solution
+
+Use Upstash Redis for serverless-compatible caching with automatic serialization.
+
+## Files
+
+```typescript title="lib/cache.ts"
+import { Redis } from "@upstash/redis";
+
+export const redis = Redis.fromEnv();
+
+// Generic cache helper with automatic serialization
+export async function cache<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  options: { ttl?: number; tags?: string[] } = {}
+): Promise<T> {
+  const { ttl = 3600, tags = [] } = options;
+
+  // Try to get from cache
+  const cached = await redis.get<T>(key);
+  if (cached !== null) {
+    return cached;
+  }
+
+  // Fetch fresh data
+  const data = await fetcher();
+
+  // Store in cache
+  await redis.set(key, data, { ex: ttl });
+
+  // Track tags for invalidation
+  for (const tag of tags) {
+    await redis.sadd(`tag:${tag}`, key);
+  }
+
+  return data;
+}
+
+// Invalidate by key
+export async function invalidate(key: string): Promise<void> {
+  await redis.del(key);
+}
+
+// Invalidate by tag
+export async function invalidateTag(tag: string): Promise<void> {
+  const keys = await redis.smembers(`tag:${tag}`);
+  if (keys.length > 0) {
+    await redis.del(...keys);
+    await redis.del(`tag:${tag}`);
+  }
+}
+```
+
+```typescript title="lib/cached-queries.ts"
+import { cache, invalidateTag } from "./cache";
+import { prisma } from "./db";
+
+// Cache a user query
+export async function getUser(id: string) {
+  return cache(`user:${id}`, () => prisma.user.findUnique({ where: { id } }), {
+    ttl: 3600,
+    tags: ["users", `user:${id}`],
+  });
+}
+
+// Cache a list query
+export async function getProducts() {
+  return cache("products:all", () => prisma.product.findMany({ orderBy: { createdAt: "desc" } }), {
+    ttl: 300,
+    tags: ["products"],
+  });
+}
+
+// Invalidate when data changes
+export async function updateUser(id: string, data: { name: string }) {
+  const user = await prisma.user.update({ where: { id }, data });
+  await invalidateTag(`user:${id}`);
+  return user;
+}
+
+export async function createProduct(data: { name: string; price: number }) {
+  const product = await prisma.product.create({ data });
+  await invalidateTag("products");
+  return product;
+}
+```
+
+```typescript title="app/api/users/[id]/route.ts"
+import { NextResponse } from "next/server";
+import { getUser, updateUser } from "@/lib/cached-queries";
+
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  const user = await getUser(params.id);
+
+  if (!user) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(user);
+}
+
+export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+  const data = await request.json();
+  const user = await updateUser(params.id, data);
+  return NextResponse.json(user);
+}
+```
+
+```typescript title="lib/cache-metrics.ts"
+import { redis } from "./cache";
+
+// Track cache hits/misses
+export async function trackCacheAccess(key: string, hit: boolean) {
+  const metric = hit ? "cache:hits" : "cache:misses";
+  await redis.incr(metric);
+}
+
+// Get cache statistics
+export async function getCacheStats() {
+  const [hits, misses] = await Promise.all([
+    redis.get<number>("cache:hits") ?? 0,
+    redis.get<number>("cache:misses") ?? 0,
+  ]);
+
+  const total = hits + misses;
+  const hitRate = total > 0 ? (hits / total) * 100 : 0;
+
+  return { hits, misses, total, hitRate: hitRate.toFixed(2) };
+}
+```
+
+```bash title=".env.example"
+UPSTASH_REDIS_REST_URL="https://..."
+UPSTASH_REDIS_REST_TOKEN="..."
+```
+
+## Configuration
+
+### TTL Strategies
+
+```typescript
+// Short TTL for frequently changing data
+{
+  ttl: 60;
+} // 1 minute
+
+// Medium TTL for semi-static data
+{
+  ttl: 3600;
+} // 1 hour
+
+// Long TTL for rarely changing data
+{
+  ttl: 86400;
+} // 24 hours
+
+// No expiration (manual invalidation only)
+{
+  ttl: 0;
+}
+```
+
+### Stale-While-Revalidate Pattern
+
+```typescript
+async function cacheWithSWR<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  ttl: number,
+  staleTime: number
+): Promise<T> {
+  const cached = await redis.get<{ data: T; timestamp: number }>(key);
+
+  if (cached) {
+    const age = Date.now() - cached.timestamp;
+
+    // Return stale data and revalidate in background
+    if (age > staleTime) {
+      fetcher().then(async (data) => {
+        await redis.set(key, { data, timestamp: Date.now() }, { ex: ttl });
+      });
+    }
+
+    return cached.data;
+  }
+
+  const data = await fetcher();
+  await redis.set(key, { data, timestamp: Date.now() }, { ex: ttl });
+  return data;
+}
+```
+
+## Usage
+
+### Basic Caching
+
+```typescript
+import { cache } from "@/lib/cache";
+
+const user = await cache(`user:${userId}`, () => fetchUserFromDatabase(userId), { ttl: 3600 });
+```
+
+### Cache Invalidation on Mutation
+
+```typescript
+import { invalidateTag } from "@/lib/cache";
+
+async function updateProduct(id: string, data: ProductData) {
+  await prisma.product.update({ where: { id }, data });
+  await invalidateTag("products");
+  await invalidateTag(`product:${id}`);
+}
+```
+
+## Troubleshooting
+
+### Cache not invalidating
+
+- Check that tags are being set correctly
+- Verify the invalidation is being called after the database update
+- Use Redis CLI to inspect keys: `redis-cli KEYS "tag:*"`
+
+### Stale data issues
+
+- Reduce TTL for frequently changing data
+- Implement cache versioning for breaking changes
+- Use stale-while-revalidate for better UX

@@ -1,0 +1,240 @@
+# Vercel Config
+
+Vercel deployment configuration with edge functions, environment setup, and build optimizations.
+
+## The Problem
+
+Default Vercel deployments work, but miss optimizations:
+
+- Environment variables aren't type-safe
+- Edge functions aren't configured
+- Build times are slow
+- No preview deployment customization
+
+## The Solution
+
+Configure Vercel with `vercel.json` for optimized deployments, proper environment handling, and edge function support.
+
+## Files
+
+```json title="vercel.json"
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/docs",
+      "destination": "https://docs.example.com"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/cleanup",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+```
+
+```typescript title="lib/env.ts"
+import { z } from "zod";
+
+const envSchema = z.object({
+  DATABASE_URL: z.string().url(),
+  NEXTAUTH_SECRET: z.string().min(32),
+  NEXTAUTH_URL: z.string().url(),
+  VERCEL_URL: z.string().optional(),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+});
+
+function getEnv() {
+  const parsed = envSchema.safeParse(process.env);
+
+  if (!parsed.success) {
+    console.error("Invalid environment variables:", parsed.error.flatten());
+    throw new Error("Invalid environment variables");
+  }
+
+  return parsed.data;
+}
+
+export const env = getEnv();
+
+// Get the base URL for the app
+export function getBaseUrl() {
+  if (typeof window !== "undefined") return "";
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+```
+
+```typescript title="middleware.ts"
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|public/).*)"],
+};
+
+export function middleware(request: NextRequest) {
+  const response = NextResponse.next();
+
+  // Add request ID for tracing
+  const requestId = crypto.randomUUID();
+  response.headers.set("x-request-id", requestId);
+
+  // Redirect www to non-www
+  const hostname = request.headers.get("host");
+  if (hostname?.startsWith("www.")) {
+    const newUrl = new URL(request.url);
+    newUrl.host = hostname.replace("www.", "");
+    return NextResponse.redirect(newUrl, 301);
+  }
+
+  return response;
+}
+```
+
+```typescript title="app/api/cron/cleanup/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "edge";
+
+export async function GET(request: NextRequest) {
+  // Verify cron secret
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Perform cleanup tasks
+  try {
+    // await cleanupExpiredSessions();
+    // await cleanupOldLogs();
+
+    return NextResponse.json({ success: true, timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error("Cron cleanup failed:", error);
+    return NextResponse.json({ error: "Cleanup failed" }, { status: 500 });
+  }
+}
+```
+
+```typescript title="next.config.js"
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    // Enable partial prerendering (when stable)
+    // ppr: true,
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "avatars.githubusercontent.com",
+      },
+    ],
+  },
+  // Reduce bundle size
+  modularizeImports: {
+    "lucide-react": {
+      transform: "lucide-react/dist/esm/icons/{{ kebabCase member }}",
+    },
+  },
+};
+
+module.exports = nextConfig;
+```
+
+## Configuration
+
+### Environment Variables
+
+Set these in your Vercel dashboard:
+
+**Production:**
+
+- `DATABASE_URL` - Production database connection string
+- `NEXTAUTH_SECRET` - Generate with `openssl rand -base64 32`
+- `NEXTAUTH_URL` - Your production URL
+
+**Preview:**
+
+- Use Vercel's automatic preview URLs
+- Set `NEXTAUTH_URL` to use `VERCEL_URL`
+
+### Edge Functions
+
+Configure routes to run on the edge:
+
+```typescript
+// app/api/edge-route/route.ts
+export const runtime = "edge";
+export const preferredRegion = ["iad1", "sfo1"];
+```
+
+## Usage
+
+### Deploy Commands
+
+```bash
+# Deploy to preview
+vercel
+
+# Deploy to production
+vercel --prod
+
+# Pull environment variables
+vercel env pull .env.local
+```
+
+### Preview Deployments
+
+Every push to a PR creates a preview deployment with:
+
+- Unique URL for testing
+- Same infrastructure as production
+- Preview-specific environment variables
+
+## Troubleshooting
+
+### Build failures
+
+- Check the build logs in the Vercel dashboard
+- Ensure all environment variables are set
+- Run `npm run build` locally to reproduce
+
+### Edge function errors
+
+- Edge functions have limited Node.js API support
+- Use `edge-runtime` compatible packages
+- Check for unsupported APIs like `fs` or `child_process`

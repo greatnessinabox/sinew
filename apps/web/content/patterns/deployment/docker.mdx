@@ -1,0 +1,303 @@
+# Docker Config
+
+Multi-stage Docker builds optimized for Next.js. Production-ready containers with minimal image size.
+
+## The Problem
+
+Docker builds for Next.js can be:
+
+- Slow due to dependency installation
+- Large due to dev dependencies
+- Insecure with unnecessary files
+- Inefficient with poor layer caching
+
+## The Solution
+
+Multi-stage builds with optimized layer caching and standalone output.
+
+## Files
+
+```dockerfile title="Dockerfile"
+# syntax=docker/dockerfile:1
+
+# Base stage with dependencies
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Dependencies stage
+FROM base AS deps
+COPY package.json bun.lockb* package-lock.json* yarn.lock* pnpm-lock.yaml* ./
+
+# Install dependencies based on lockfile
+RUN \
+  if [ -f bun.lockb ]; then npm install -g bun && bun install --frozen-lockfile; \
+  elif [ -f yarn.lock ]; then yarn --frozen-lockfile; \
+  elif [ -f package-lock.json ]; then npm ci; \
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \
+  else echo "Lockfile not found." && exit 1; \
+  fi
+
+# Builder stage
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Disable telemetry during build
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Build the application
+RUN \
+  if [ -f bun.lockb ]; then npm install -g bun && bun run build; \
+  elif [ -f yarn.lock ]; then yarn build; \
+  elif [ -f package-lock.json ]; then npm run build; \
+  else pnpm build; \
+  fi
+
+# Production stage
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy public assets
+COPY --from=builder /app/public ./public
+
+# Copy standalone output
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]
+```
+
+```yaml title="docker-compose.yml"
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=app
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+```
+
+```yaml title="docker-compose.dev.yml"
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/app
+      - NODE_ENV=development
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=app
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_dev_data:
+```
+
+```dockerfile title="Dockerfile.dev"
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install bun
+RUN npm install -g bun
+
+COPY package.json bun.lockb* ./
+RUN bun install
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["bun", "run", "dev"]
+```
+
+```gitignore title=".dockerignore"
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+
+# Next.js
+.next
+out
+
+# Production
+build
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env files
+.env*.local
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.idea
+.vscode
+
+# Git
+.git
+.gitignore
+```
+
+```javascript title="next.config.js"
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: "standalone",
+};
+
+export default nextConfig;
+```
+
+## Configuration
+
+### Enable Standalone Output
+
+Add to `next.config.js`:
+
+```javascript
+module.exports = {
+  output: "standalone",
+};
+```
+
+This creates a minimal `.next/standalone` directory with only the files needed for production.
+
+### Build Arguments
+
+```dockerfile
+ARG NODE_ENV=production
+ARG DATABASE_URL
+
+ENV NODE_ENV=$NODE_ENV
+ENV DATABASE_URL=$DATABASE_URL
+```
+
+Build with:
+
+```bash
+docker build --build-arg DATABASE_URL=$DATABASE_URL -t myapp .
+```
+
+## Usage
+
+### Development
+
+```bash
+# Start development environment
+docker compose -f docker-compose.dev.yml up
+
+# Rebuild after dependency changes
+docker compose -f docker-compose.dev.yml up --build
+```
+
+### Production
+
+```bash
+# Build production image
+docker build -t myapp:latest .
+
+# Run production container
+docker run -p 3000:3000 \
+  -e DATABASE_URL="postgresql://..." \
+  myapp:latest
+```
+
+### Health Checks
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/api/health || exit 1
+```
+
+## Troubleshooting
+
+### Large image size
+
+- Ensure `.dockerignore` excludes `node_modules` and `.next`
+- Use `output: "standalone"` in Next.js config
+- Use Alpine base images
+
+### Slow builds
+
+- Order Dockerfile commands by change frequency
+- Use BuildKit for parallel builds: `DOCKER_BUILDKIT=1`
+- Cache dependencies in a separate layer
+
+### Permission errors
+
+- Use a non-root user in production
+- Set proper ownership with `--chown` in COPY commands

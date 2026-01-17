@@ -1,0 +1,267 @@
+# MSW Mocking
+
+API mocking with Mock Service Worker for tests and development. Intercept requests at the network level.
+
+## The Problem
+
+Testing components that fetch data is challenging:
+
+- Mocking fetch/axios is brittle and implementation-specific
+- Test data is scattered across test files
+- Development without a backend requires workarounds
+
+## The Solution
+
+Use MSW to intercept requests at the network level. Same mocks work in tests, Storybook, and development.
+
+## Files
+
+```typescript title="mocks/handlers.ts"
+import { http, HttpResponse } from "msw";
+
+export const handlers = [
+  // GET /api/users
+  http.get("/api/users", () => {
+    return HttpResponse.json([
+      { id: "1", name: "Alice", email: "alice@example.com" },
+      { id: "2", name: "Bob", email: "bob@example.com" },
+    ]);
+  }),
+
+  // GET /api/users/:id
+  http.get("/api/users/:id", ({ params }) => {
+    const { id } = params;
+
+    if (id === "not-found") {
+      return HttpResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    return HttpResponse.json({
+      id,
+      name: "Test User",
+      email: "test@example.com",
+    });
+  }),
+
+  // POST /api/users
+  http.post("/api/users", async ({ request }) => {
+    const data = await request.json();
+
+    return HttpResponse.json({ id: "new-id", ...data }, { status: 201 });
+  }),
+
+  // DELETE /api/users/:id
+  http.delete("/api/users/:id", ({ params }) => {
+    return HttpResponse.json({ deleted: params.id });
+  }),
+
+  // Simulate network error
+  http.get("/api/error", () => {
+    return HttpResponse.error();
+  }),
+
+  // Simulate slow response
+  http.get("/api/slow", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return HttpResponse.json({ data: "slow response" });
+  }),
+];
+```
+
+```typescript title="mocks/server.ts"
+import { setupServer } from "msw/node";
+import { handlers } from "./handlers";
+
+export const server = setupServer(...handlers);
+```
+
+```typescript title="mocks/browser.ts"
+import { setupWorker } from "msw/browser";
+import { handlers } from "./handlers";
+
+export const worker = setupWorker(...handlers);
+```
+
+```typescript title="vitest.setup.ts"
+import { beforeAll, afterEach, afterAll } from "vitest";
+import { server } from "./mocks/server";
+
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+```
+
+```typescript title="tests/users.test.tsx"
+import { render, screen, waitFor } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
+import { server } from "../mocks/server";
+import { UserList } from "@/components/user-list";
+
+describe("UserList", () => {
+  it("displays users from API", async () => {
+    render(<UserList />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Bob")).toBeInTheDocument();
+    });
+  });
+
+  it("handles empty state", async () => {
+    server.use(
+      http.get("/api/users", () => {
+        return HttpResponse.json([]);
+      })
+    );
+
+    render(<UserList />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No users found")).toBeInTheDocument();
+    });
+  });
+
+  it("handles error state", async () => {
+    server.use(
+      http.get("/api/users", () => {
+        return HttpResponse.json({ error: "Server error" }, { status: 500 });
+      })
+    );
+
+    render(<UserList />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Error loading users")).toBeInTheDocument();
+    });
+  });
+});
+```
+
+```typescript title="app/providers.tsx"
+"use client";
+
+import { useEffect, useState } from "react";
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  const [mockingEnabled, setMockingEnabled] = useState(false);
+
+  useEffect(() => {
+    async function enableMocking() {
+      if (process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_API_MOCKING === "enabled") {
+        const { worker } = await import("../mocks/browser");
+        await worker.start({
+          onUnhandledRequest: "bypass",
+        });
+        setMockingEnabled(true);
+      } else {
+        setMockingEnabled(true);
+      }
+    }
+
+    enableMocking();
+  }, []);
+
+  if (!mockingEnabled) {
+    return null;
+  }
+
+  return <>{children}</>;
+}
+```
+
+## Configuration
+
+### Vitest Setup
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
+    globals: true,
+  },
+});
+```
+
+### Enable Browser Mocking
+
+```bash
+# .env.local
+NEXT_PUBLIC_API_MOCKING="enabled"
+```
+
+## Usage
+
+### Override Handlers in Tests
+
+```typescript
+import { http, HttpResponse } from "msw";
+import { server } from "../mocks/server";
+
+test("specific scenario", async () => {
+  // Override for this test only
+  server.use(
+    http.get("/api/users", () => {
+      return HttpResponse.json([{ id: "1", name: "Custom User" }]);
+    })
+  );
+
+  // Test code...
+});
+```
+
+### Dynamic Responses
+
+```typescript
+let callCount = 0;
+
+http.get("/api/data", () => {
+  callCount++;
+
+  if (callCount === 1) {
+    return HttpResponse.json({ status: "loading" });
+  }
+
+  return HttpResponse.json({ status: "complete", data: [] });
+});
+```
+
+### Request Assertions
+
+```typescript
+import { http, HttpResponse } from "msw";
+
+let capturedRequest: Request | null = null;
+
+server.use(
+  http.post("/api/users", async ({ request }) => {
+    capturedRequest = request.clone();
+    return HttpResponse.json({ id: "1" });
+  })
+);
+
+// After your action
+expect(await capturedRequest?.json()).toEqual({
+  name: "Alice",
+  email: "alice@example.com",
+});
+```
+
+## Troubleshooting
+
+### Handlers not matching
+
+- Check that the URL pattern matches exactly
+- Verify HTTP method is correct
+- Use `onUnhandledRequest: "warn"` to debug
+
+### MSW not working in tests
+
+- Ensure `vitest.setup.ts` is in `setupFiles`
+- Check that `server.listen()` is called in `beforeAll`
+- Verify MSW version compatibility

@@ -1,0 +1,249 @@
+# In-Memory Cache
+
+Simple LRU in-memory caching for serverless environments. Zero external dependencies.
+
+## The Problem
+
+Sometimes you need caching but don't want external infrastructure:
+
+- Redis adds cost and complexity
+- Simple data doesn't need distributed caching
+- Development environments need a simple solution
+
+## The Solution
+
+Use an in-memory LRU cache that works within a single serverless function. Perfect for caching expensive computations or rate limiting counters.
+
+## Files
+
+```typescript title="lib/cache.ts"
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+class LRUCache<T> {
+  private cache = new Map<string, CacheEntry<T>>();
+  private maxSize: number;
+
+  constructor(maxSize: number = 1000) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: string): T | undefined {
+    const entry = this.cache.get(key);
+
+    if (!entry) return undefined;
+
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return undefined;
+    }
+
+    // Move to end (most recently used)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+
+    return entry.value;
+  }
+
+  set(key: string, value: T, ttlMs: number = 60000): void {
+    // Evict oldest if at capacity
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
+
+    this.cache.set(key, {
+      value,
+      expiresAt: Date.now() + ttlMs,
+    });
+  }
+
+  delete(key: string): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+}
+
+// Global cache instance
+export const cache = new LRUCache<unknown>(500);
+
+// Typed cache wrapper
+export async function cached<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  ttlMs: number = 60000
+): Promise<T> {
+  const existing = cache.get(key) as T | undefined;
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  const value = await fetcher();
+  cache.set(key, value, ttlMs);
+  return value;
+}
+```
+
+```typescript title="lib/data/products.ts"
+import { cached } from "@/lib/cache";
+import { prisma } from "@/lib/db";
+
+export async function getProduct(id: string) {
+  return cached(
+    `product:${id}`,
+    () => prisma.product.findUnique({ where: { id } }),
+    5 * 60 * 1000 // 5 minutes
+  );
+}
+
+export async function getProductCategories() {
+  return cached(
+    "product-categories",
+    () => prisma.category.findMany(),
+    30 * 60 * 1000 // 30 minutes
+  );
+}
+```
+
+```typescript title="lib/rate-limit.ts"
+import { cache } from "@/lib/cache";
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+export function rateLimit(
+  identifier: string,
+  limit: number = 10,
+  windowMs: number = 60000
+): { success: boolean; remaining: number; resetAt: number } {
+  const key = `rate:${identifier}`;
+  const now = Date.now();
+
+  let entry = cache.get(key) as RateLimitEntry | undefined;
+
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + windowMs };
+  }
+
+  entry.count++;
+  cache.set(key, entry, entry.resetAt - now);
+
+  return {
+    success: entry.count <= limit,
+    remaining: Math.max(0, limit - entry.count),
+    resetAt: entry.resetAt,
+  };
+}
+```
+
+```typescript title="app/api/products/[id]/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { getProduct } from "@/lib/data/products";
+import { rateLimit } from "@/lib/rate-limit";
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ip = req.headers.get("x-forwarded-for") || "anonymous";
+  const { success, remaining } = rateLimit(ip, 100, 60000);
+
+  if (!success) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: { "X-RateLimit-Remaining": "0" } }
+    );
+  }
+
+  const { id } = await params;
+  const product = await getProduct(id);
+
+  if (!product) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(product, {
+    headers: { "X-RateLimit-Remaining": remaining.toString() },
+  });
+}
+```
+
+## Configuration
+
+### Cache Size
+
+```typescript
+// Smaller cache for memory-constrained environments
+const cache = new LRUCache(100);
+
+// Larger cache for more headroom
+const cache = new LRUCache(5000);
+```
+
+### TTL Strategies
+
+```typescript
+// Short TTL for frequently changing data
+cached(key, fetcher, 30 * 1000); // 30 seconds
+
+// Medium TTL for semi-static data
+cached(key, fetcher, 5 * 60 * 1000); // 5 minutes
+
+// Long TTL for static data
+cached(key, fetcher, 60 * 60 * 1000); // 1 hour
+```
+
+## Usage
+
+### Basic Caching
+
+```typescript
+import { cached } from "@/lib/cache";
+
+const data = await cached(
+  "expensive-computation",
+  async () => {
+    // This only runs if not in cache
+    return computeExpensiveValue();
+  },
+  60000 // 1 minute TTL
+);
+```
+
+### Manual Cache Operations
+
+```typescript
+import { cache } from "@/lib/cache";
+
+// Set a value
+cache.set("key", { foo: "bar" }, 60000);
+
+// Get a value
+const value = cache.get("key");
+
+// Delete a value
+cache.delete("key");
+
+// Clear all
+cache.clear();
+```
+
+## Troubleshooting
+
+### Cache not persisting between requests
+
+In-memory cache is per-instance. In serverless, each function instance has its own cache. For shared state, use Redis or a database.
+
+### Memory issues
+
+- Reduce `maxSize` to limit memory usage
+- Use shorter TTLs so entries expire faster
+- Monitor memory usage in production

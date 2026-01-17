@@ -1,0 +1,228 @@
+# Playwright E2E
+
+End-to-end testing with Playwright. Includes page object pattern, authentication helpers, and CI configuration.
+
+## The Problem
+
+E2E tests are often flaky and hard to maintain:
+
+- Tests break when UI changes
+- No structure for reusable test utilities
+- CI setup is complex
+- Testing authenticated flows is difficult
+
+## The Solution
+
+Use Playwright with the Page Object pattern for maintainable tests. Structure tests with fixtures for authentication and shared setup.
+
+## Files
+
+```typescript title="playwright.config.ts"
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: [["html", { open: "never" }], ["list"]],
+  use: {
+    baseURL: process.env.BASE_URL || "http://localhost:3000",
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+  },
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "firefox", use: { ...devices["Desktop Firefox"] } },
+    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    { name: "mobile-chrome", use: { ...devices["Pixel 5"] } },
+  ],
+  webServer: {
+    command: "npm run dev",
+    url: "http://localhost:3000",
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+```typescript title="e2e/fixtures/base.ts"
+import { test as base, expect } from "@playwright/test";
+
+export const test = base.extend<{
+  // Add custom fixtures here
+}>({
+  // Example: Auto-login fixture
+  // authenticatedPage: async ({ page }, use) => {
+  //   await page.goto("/login");
+  //   await page.fill('[name="email"]', "test@example.com");
+  //   await page.fill('[name="password"]', "password");
+  //   await page.click('button[type="submit"]');
+  //   await page.waitForURL("/dashboard");
+  //   await use(page);
+  // },
+});
+
+export { expect };
+```
+
+```typescript title="e2e/pages/home.page.ts"
+import { Page, Locator } from "@playwright/test";
+
+export class HomePage {
+  readonly page: Page;
+  readonly heading: Locator;
+  readonly ctaButton: Locator;
+  readonly navLinks: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.heading = page.getByRole("heading", { level: 1 });
+    this.ctaButton = page.getByRole("link", { name: /get started/i });
+    this.navLinks = page.getByRole("navigation").getByRole("link");
+  }
+
+  async goto() {
+    await this.page.goto("/");
+  }
+
+  async clickCta() {
+    await this.ctaButton.click();
+  }
+
+  async getNavLinkCount() {
+    return this.navLinks.count();
+  }
+}
+```
+
+```typescript title="e2e/home.spec.ts"
+import { test, expect } from "./fixtures/base";
+import { HomePage } from "./pages/home.page";
+
+test.describe("Home Page", () => {
+  test("has correct title", async ({ page }) => {
+    await page.goto("/");
+    await expect(page).toHaveTitle(/Your App/);
+  });
+
+  test("displays main heading", async ({ page }) => {
+    const homePage = new HomePage(page);
+    await homePage.goto();
+    await expect(homePage.heading).toBeVisible();
+  });
+
+  test("CTA button navigates correctly", async ({ page }) => {
+    const homePage = new HomePage(page);
+    await homePage.goto();
+    await homePage.clickCta();
+    await expect(page).toHaveURL(/patterns/);
+  });
+});
+```
+
+```yaml title=".github/workflows/e2e.yml"
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Build app
+        run: npm run build
+
+      - name: Run E2E tests
+        run: npx playwright test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+```
+
+## Configuration
+
+### Add to package.json
+
+```json
+{
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
+  }
+}
+```
+
+## Usage
+
+### Running Tests
+
+```bash
+# Run all tests
+npx playwright test
+
+# Run with UI mode
+npx playwright test --ui
+
+# Run specific test file
+npx playwright test e2e/home.spec.ts
+
+# Debug mode
+npx playwright test --debug
+```
+
+### Testing Authenticated Routes
+
+```typescript
+// e2e/fixtures/auth.ts
+import { test as base } from "@playwright/test";
+
+export const test = base.extend({
+  authenticatedPage: async ({ page }, use) => {
+    await page.goto("/login");
+    await page.fill('[name="email"]', process.env.TEST_USER_EMAIL!);
+    await page.fill('[name="password"]', process.env.TEST_USER_PASSWORD!);
+    await page.click('button[type="submit"]');
+    await page.waitForURL("/dashboard");
+    await use(page);
+  },
+});
+```
+
+## Troubleshooting
+
+### Tests are flaky
+
+- Use `await expect(...).toBeVisible()` instead of relying on timing
+- Add `page.waitForLoadState("networkidle")` for pages with async data
+- Use retries in CI: `retries: process.env.CI ? 2 : 0`
+
+### Cannot find element
+
+- Use Playwright's locator methods: `getByRole`, `getByText`, `getByTestId`
+- Avoid CSS selectors when possible
+- Use the Playwright inspector: `npx playwright test --debug`

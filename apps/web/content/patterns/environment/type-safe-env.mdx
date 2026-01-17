@@ -1,0 +1,193 @@
+# Type-safe Environment Variables
+
+Runtime-validated environment variables with Zod and TypeScript. Catch missing or invalid env vars at build time, not in production.
+
+## The Problem
+
+Environment variables are a common source of runtime errors:
+
+- Typos in variable names go unnoticed
+- Missing required variables crash in production
+- No type safety or IDE autocomplete
+- No validation of expected formats
+
+## The Solution
+
+Use Zod to validate and type environment variables at startup.
+
+## Files
+
+```typescript title="lib/env.ts"
+import { z } from "zod";
+
+const envSchema = z.object({
+  // Database
+  DATABASE_URL: z.string().url(),
+  DIRECT_URL: z.string().url().optional(),
+
+  // Auth
+  AUTH_SECRET: z.string().min(32),
+  GITHUB_CLIENT_ID: z.string().optional(),
+  GITHUB_CLIENT_SECRET: z.string().optional(),
+
+  // API Keys
+  STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
+  RESEND_API_KEY: z.string().startsWith("re_").optional(),
+
+  // App
+  NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+});
+
+// Validate at module load
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  console.error("Invalid environment variables:");
+  console.error(parsed.error.flatten().fieldErrors);
+  throw new Error("Invalid environment variables");
+}
+
+export const env = parsed.data;
+
+// Type export for use elsewhere
+export type Env = z.infer<typeof envSchema>;
+```
+
+```typescript title="lib/env.client.ts"
+import { z } from "zod";
+
+// Client-side env vars must be prefixed with NEXT_PUBLIC_
+const clientEnvSchema = z.object({
+  NEXT_PUBLIC_APP_URL: z.string().url(),
+  NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
+  NEXT_PUBLIC_POSTHOG_HOST: z.string().url().optional(),
+});
+
+export const clientEnv = clientEnvSchema.parse({
+  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
+  NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+});
+```
+
+```bash title=".env.example"
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
+
+# Auth (generate with: openssl rand -base64 32)
+AUTH_SECRET="your-32-character-secret-here-minimum"
+
+# Optional: OAuth
+GITHUB_CLIENT_ID=""
+GITHUB_CLIENT_SECRET=""
+
+# Optional: Payments
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+
+# Optional: Email
+RESEND_API_KEY="re_..."
+
+# App
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NODE_ENV="development"
+```
+
+## Configuration
+
+### Schema Options
+
+Zod provides many validation helpers:
+
+```typescript
+z.string().url(); // Must be valid URL
+z.string().email(); // Must be valid email
+z.string().min(32); // Minimum length
+z.string().startsWith("sk_"); // Must start with prefix
+z.enum(["a", "b", "c"]); // Must be one of these values
+z.string().optional(); // Not required
+z.string().default("foo"); // Default value if missing
+z.coerce.number(); // Parse string to number
+z.coerce.boolean(); // Parse "true"/"false" to boolean
+```
+
+## Usage
+
+### Import and Use
+
+```typescript
+import { env } from "@/lib/env";
+
+// Full type safety and autocomplete
+const dbUrl = env.DATABASE_URL;
+const isProduction = env.NODE_ENV === "production";
+
+// TypeScript error if accessing non-existent var
+const invalid = env.DOES_NOT_EXIST; // TS Error!
+```
+
+### Client Components
+
+```typescript
+"use client";
+
+import { clientEnv } from "@/lib/env.client";
+
+// Only NEXT_PUBLIC_ vars are available
+const appUrl = clientEnv.NEXT_PUBLIC_APP_URL;
+```
+
+## Advanced Patterns
+
+### Environment-specific Validation
+
+```typescript
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(["development", "production", "test"]),
+    DATABASE_URL: z.string().url(),
+    STRIPE_SECRET_KEY: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      // Require Stripe in production
+      if (data.NODE_ENV === "production" && !data.STRIPE_SECRET_KEY) {
+        return false;
+      }
+      return true;
+    },
+    { message: "STRIPE_SECRET_KEY is required in production" }
+  );
+```
+
+### Transform Values
+
+```typescript
+const envSchema = z.object({
+  PORT: z.coerce.number().default(3000),
+  DEBUG: z
+    .string()
+    .transform((v) => v === "true")
+    .default("false"),
+  ALLOWED_ORIGINS: z
+    .string()
+    .transform((v) => v.split(","))
+    .default(""),
+});
+```
+
+## Troubleshooting
+
+### "Invalid environment variables" on startup
+
+Check the console output for which variables are missing or invalid. Common issues:
+
+- Missing required variables
+- Invalid URL format (missing protocol)
+- Wrong prefix (e.g., `sk_live_` vs `sk_test_`)
+
+### Client variables undefined
+
+Make sure client-side variables are prefixed with `NEXT_PUBLIC_` and rebuild your app after adding new ones.

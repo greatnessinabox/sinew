@@ -1,0 +1,259 @@
+# Sentry Monitoring
+
+Error tracking and performance monitoring with Sentry. Includes source maps, custom context, and integration with Next.js.
+
+## The Problem
+
+Production debugging is difficult without:
+
+- Automatic error capture with stack traces
+- Performance monitoring and bottleneck detection
+- User context for reproducing issues
+- Release tracking and regression detection
+
+## The Solution
+
+Sentry provides comprehensive observability with minimal setup.
+
+## Files
+
+```typescript title="sentry.client.config.ts"
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+
+  // Performance monitoring
+  tracesSampleRate: 1.0,
+
+  // Session replay
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1.0,
+
+  // Environment
+  environment: process.env.NODE_ENV,
+
+  // Filter out known non-issues
+  ignoreErrors: ["ResizeObserver loop limit exceeded", "Network request failed"],
+
+  // Add integrations
+  integrations: [Sentry.replayIntegration(), Sentry.browserTracingIntegration()],
+});
+```
+
+```typescript title="sentry.server.config.ts"
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+
+  // Performance monitoring
+  tracesSampleRate: 1.0,
+
+  // Environment
+  environment: process.env.NODE_ENV,
+
+  // Enable profiling
+  profilesSampleRate: 1.0,
+});
+```
+
+```typescript title="sentry.edge.config.ts"
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  tracesSampleRate: 1.0,
+  environment: process.env.NODE_ENV,
+});
+```
+
+```javascript title="next.config.js"
+import { withSentryConfig } from "@sentry/nextjs";
+
+const nextConfig = {
+  // Your existing config
+};
+
+export default withSentryConfig(nextConfig, {
+  // Upload source maps for better stack traces
+  org: "your-org",
+  project: "your-project",
+
+  // Suppress logs during build
+  silent: true,
+
+  // Hide source maps from client
+  hideSourceMaps: true,
+
+  // Automatically instrument
+  autoInstrumentServerFunctions: true,
+  autoInstrumentMiddleware: true,
+});
+```
+
+```typescript title="lib/sentry.ts"
+import * as Sentry from "@sentry/nextjs";
+
+// Set user context for error tracking
+export function setUser(user: { id: string; email: string }) {
+  Sentry.setUser({
+    id: user.id,
+    email: user.email,
+  });
+}
+
+// Clear user on logout
+export function clearUser() {
+  Sentry.setUser(null);
+}
+
+// Capture error with context
+export function captureError(error: Error, context?: Record<string, unknown>) {
+  Sentry.captureException(error, {
+    extra: context,
+  });
+}
+
+// Track custom events
+export function trackEvent(name: string, data?: Record<string, unknown>) {
+  Sentry.captureMessage(name, {
+    level: "info",
+    extra: data,
+  });
+}
+
+// Create a transaction for performance monitoring
+export function startTransaction(name: string, op: string) {
+  return Sentry.startSpan({ name, op }, () => {});
+}
+```
+
+```typescript title="app/global-error.tsx"
+"use client";
+
+import * as Sentry from "@sentry/nextjs";
+import { useEffect } from "react";
+
+export default function GlobalError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
+
+  return (
+    <html>
+      <body>
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold">Something went wrong!</h2>
+            <button
+              onClick={reset}
+              className="mt-4 rounded bg-blue-500 px-4 py-2 text-white"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      </body>
+    </html>
+  );
+}
+```
+
+```bash title=".env.example"
+NEXT_PUBLIC_SENTRY_DSN="https://xxx@xxx.ingest.sentry.io/xxx"
+SENTRY_AUTH_TOKEN="sntrys_..."
+SENTRY_ORG="your-org"
+SENTRY_PROJECT="your-project"
+```
+
+## Configuration
+
+### Sample Rates
+
+```typescript
+// Development: capture everything
+tracesSampleRate: 1.0,
+
+// Production: sample for cost efficiency
+tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+```
+
+### Filtering Errors
+
+```typescript
+Sentry.init({
+  beforeSend(event, hint) {
+    const error = hint.originalException;
+
+    // Don't send expected errors
+    if (error?.message?.includes("Expected error")) {
+      return null;
+    }
+
+    return event;
+  },
+});
+```
+
+## Usage
+
+### Manual Error Capture
+
+```typescript
+import { captureError } from "@/lib/sentry";
+
+try {
+  await riskyOperation();
+} catch (error) {
+  captureError(error as Error, {
+    operation: "riskyOperation",
+    userId: user.id,
+  });
+}
+```
+
+### Performance Monitoring
+
+```typescript
+import * as Sentry from "@sentry/nextjs";
+
+async function processOrder(orderId: string) {
+  return Sentry.startSpan({ name: "processOrder", op: "task" }, async () => {
+    // Your code here
+    await chargePayment(orderId);
+    await sendConfirmation(orderId);
+  });
+}
+```
+
+### Set User Context
+
+```typescript
+// On login
+import { setUser } from "@/lib/sentry";
+
+async function onLogin(user: User) {
+  setUser({ id: user.id, email: user.email });
+}
+```
+
+## Troubleshooting
+
+### Source maps not working
+
+- Check that `SENTRY_AUTH_TOKEN` is set during build
+- Verify org and project names are correct
+- Ensure `hideSourceMaps: true` is set for security
+
+### Too many events
+
+- Reduce `tracesSampleRate` for production
+- Add error filters in `beforeSend`
+- Use `ignoreErrors` for known non-issues

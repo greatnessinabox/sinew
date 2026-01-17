@@ -1,0 +1,317 @@
+# Drizzle Config
+
+Type-safe Drizzle ORM setup with migrations for PostgreSQL.
+
+## The Problem
+
+Prisma has drawbacks for some use cases:
+
+- Large generated client increases bundle size
+- Schema format differs from SQL
+- Limited control over generated queries
+
+## The Solution
+
+Use Drizzle ORM for a lightweight, SQL-like, fully type-safe database layer.
+
+## Files
+
+```typescript title="lib/db/index.ts"
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "./schema";
+
+const connectionString = process.env.DATABASE_URL!;
+
+// For query purposes
+const queryClient = postgres(connectionString);
+export const db = drizzle(queryClient, { schema });
+
+// For migrations (uses a different connection)
+export const migrationClient = postgres(connectionString, { max: 1 });
+```
+
+```typescript title="lib/db/schema.ts"
+import {
+  pgTable,
+  text,
+  timestamp,
+  varchar,
+  boolean,
+  integer,
+  primaryKey,
+} from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+
+export const users = pgTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  name: varchar("name", { length: 255 }),
+  emailVerified: timestamp("email_verified", { mode: "date" }),
+  image: text("image"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const usersRelations = relations(users, ({ many }) => ({
+  posts: many(posts),
+  sessions: many(sessions),
+}));
+
+export const posts = pgTable("posts", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content"),
+  published: boolean("published").default(false).notNull(),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const postsRelations = relations(posts, ({ one }) => ({
+  author: one(users, {
+    fields: [posts.authorId],
+    references: [users.id],
+  }),
+}));
+
+export const sessions = pgTable("sessions", {
+  sessionToken: text("session_token").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expires: timestamp("expires", { mode: "date" }).notNull(),
+});
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+// Type exports
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Post = typeof posts.$inferSelect;
+export type NewPost = typeof posts.$inferInsert;
+```
+
+```typescript title="drizzle.config.ts"
+import type { Config } from "drizzle-kit";
+
+export default {
+  schema: "./lib/db/schema.ts",
+  out: "./drizzle",
+  dialect: "postgresql",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+  verbose: true,
+  strict: true,
+} satisfies Config;
+```
+
+```typescript title="lib/db/queries/users.ts"
+import { eq } from "drizzle-orm";
+import { db } from "../index";
+import { users, type User, type NewUser } from "../schema";
+
+export async function getUserById(id: string): Promise<User | undefined> {
+  const result = await db.query.users.findFirst({
+    where: eq(users.id, id),
+  });
+  return result;
+}
+
+export async function getUserByEmail(email: string): Promise<User | undefined> {
+  const result = await db.query.users.findFirst({
+    where: eq(users.email, email),
+  });
+  return result;
+}
+
+export async function createUser(data: NewUser): Promise<User> {
+  const [user] = await db.insert(users).values(data).returning();
+  return user;
+}
+
+export async function updateUser(id: string, data: Partial<NewUser>): Promise<User> {
+  const [user] = await db
+    .update(users)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning();
+  return user;
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  await db.delete(users).where(eq(users.id, id));
+}
+```
+
+```typescript title="lib/db/queries/posts.ts"
+import { eq, desc, and } from "drizzle-orm";
+import { db } from "../index";
+import { posts, users, type Post, type NewPost } from "../schema";
+
+export async function getPostById(id: string) {
+  return db.query.posts.findFirst({
+    where: eq(posts.id, id),
+    with: {
+      author: true,
+    },
+  });
+}
+
+export async function getPublishedPosts() {
+  return db.query.posts.findMany({
+    where: eq(posts.published, true),
+    orderBy: desc(posts.createdAt),
+    with: {
+      author: {
+        columns: {
+          id: true,
+          name: true,
+          image: true,
+        },
+      },
+    },
+  });
+}
+
+export async function getUserPosts(userId: string) {
+  return db.query.posts.findMany({
+    where: eq(posts.authorId, userId),
+    orderBy: desc(posts.createdAt),
+  });
+}
+
+export async function createPost(data: NewPost): Promise<Post> {
+  const [post] = await db.insert(posts).values(data).returning();
+  return post;
+}
+
+export async function publishPost(id: string): Promise<Post> {
+  const [post] = await db
+    .update(posts)
+    .set({ published: true, updatedAt: new Date() })
+    .where(eq(posts.id, id))
+    .returning();
+  return post;
+}
+```
+
+```bash title=".env.example"
+DATABASE_URL="postgresql://user:password@localhost:5432/myapp"
+```
+
+## Configuration
+
+### Package.json Scripts
+
+```json
+{
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  }
+}
+```
+
+## Usage
+
+### Running Migrations
+
+```bash
+# Generate migration from schema changes
+npm run db:generate
+
+# Apply migrations
+npm run db:migrate
+
+# Push schema directly (development)
+npm run db:push
+
+# Open Drizzle Studio
+npm run db:studio
+```
+
+### Basic Queries
+
+```typescript
+import { db } from "@/lib/db";
+import { users, posts } from "@/lib/db/schema";
+import { eq, and, or, like } from "drizzle-orm";
+
+// Select with conditions
+const user = await db.query.users.findFirst({
+  where: eq(users.email, "test@example.com"),
+});
+
+// Select with relations
+const postsWithAuthor = await db.query.posts.findMany({
+  with: {
+    author: true,
+  },
+});
+
+// Insert
+const [newUser] = await db
+  .insert(users)
+  .values({
+    email: "new@example.com",
+    name: "New User",
+  })
+  .returning();
+
+// Update
+await db.update(users).set({ name: "Updated" }).where(eq(users.id, "123"));
+
+// Delete
+await db.delete(users).where(eq(users.id, "123"));
+```
+
+### Complex Queries
+
+```typescript
+// Join with select
+const result = await db
+  .select({
+    post: posts,
+    authorName: users.name,
+  })
+  .from(posts)
+  .leftJoin(users, eq(posts.authorId, users.id))
+  .where(eq(posts.published, true));
+
+// Aggregations
+import { count, avg } from "drizzle-orm";
+
+const stats = await db
+  .select({
+    totalPosts: count(posts.id),
+  })
+  .from(posts);
+```
+
+## Troubleshooting
+
+### Type errors with relations
+
+- Ensure relations are defined in schema
+- Check that `with` clause matches relation names
+
+### Migrations not applying
+
+- Verify DATABASE_URL is correct
+- Check migration files in `drizzle/` folder
+- Run `db:generate` before `db:migrate`

@@ -1,0 +1,24 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+.next
+.turbo
+out
+build
+
+# Lock files
+bun.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Generated
+*.generated.*
+next-env.d.ts
+
+# Misc
+.DS_Store
+*.log

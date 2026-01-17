@@ -1,0 +1,346 @@
+# RBAC Patterns
+
+Role-based access control with permissions, roles, and middleware. Protect routes and actions based on user roles.
+
+## The Problem
+
+Authorization logic becomes scattered and hard to maintain:
+
+- Permissions checked inconsistently across the app
+- Hard-coded role checks everywhere
+- No central source of truth for permissions
+- Difficult to audit who can do what
+
+## The Solution
+
+Implement a centralized RBAC system with roles, permissions, and reusable authorization utilities.
+
+## Files
+
+```typescript title="lib/rbac/permissions.ts"
+export const PERMISSIONS = {
+  // Users
+  "users:read": "View user profiles",
+  "users:write": "Edit user profiles",
+  "users:delete": "Delete users",
+  "users:manage": "Manage all users",
+
+  // Content
+  "content:read": "View content",
+  "content:write": "Create and edit content",
+  "content:publish": "Publish content",
+  "content:delete": "Delete content",
+
+  // Admin
+  "admin:access": "Access admin panel",
+  "admin:settings": "Manage settings",
+  "admin:billing": "Manage billing",
+} as const;
+
+export type Permission = keyof typeof PERMISSIONS;
+
+export const ROLES = {
+  user: {
+    name: "User",
+    permissions: ["users:read", "content:read"] as Permission[],
+  },
+  editor: {
+    name: "Editor",
+    permissions: ["users:read", "content:read", "content:write"] as Permission[],
+  },
+  admin: {
+    name: "Admin",
+    permissions: [
+      "users:read",
+      "users:write",
+      "users:manage",
+      "content:read",
+      "content:write",
+      "content:publish",
+      "content:delete",
+      "admin:access",
+      "admin:settings",
+    ] as Permission[],
+  },
+  owner: {
+    name: "Owner",
+    permissions: Object.keys(PERMISSIONS) as Permission[],
+  },
+} as const;
+
+export type Role = keyof typeof ROLES;
+```
+
+```typescript title="lib/rbac/auth.ts"
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { ROLES, type Permission, type Role } from "./permissions";
+
+interface AuthorizedUser {
+  id: string;
+  email: string;
+  role: Role;
+  permissions: Permission[];
+}
+
+export async function getAuthorizedUser(): Promise<AuthorizedUser | null> {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    return null;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true, email: true, role: true },
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const role = (user.role as Role) || "user";
+  const permissions = ROLES[role]?.permissions || [];
+
+  return {
+    id: user.id,
+    email: user.email!,
+    role,
+    permissions,
+  };
+}
+
+export async function hasPermission(permission: Permission): Promise<boolean> {
+  const user = await getAuthorizedUser();
+  if (!user) return false;
+  return user.permissions.includes(permission);
+}
+
+export async function hasRole(role: Role): Promise<boolean> {
+  const user = await getAuthorizedUser();
+  if (!user) return false;
+
+  const roleHierarchy: Role[] = ["user", "editor", "admin", "owner"];
+  const userRoleIndex = roleHierarchy.indexOf(user.role);
+  const requiredRoleIndex = roleHierarchy.indexOf(role);
+
+  return userRoleIndex >= requiredRoleIndex;
+}
+
+export async function requirePermission(permission: Permission): Promise<AuthorizedUser> {
+  const user = await getAuthorizedUser();
+
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!user.permissions.includes(permission)) {
+    throw new Error("Forbidden");
+  }
+
+  return user;
+}
+```
+
+```typescript title="lib/rbac/middleware.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthorizedUser } from "./auth";
+import type { Permission, Role } from "./permissions";
+
+export function withPermission(permission: Permission) {
+  return function <T extends unknown[]>(
+    handler: (req: NextRequest, ...args: T) => Promise<NextResponse>
+  ) {
+    return async (req: NextRequest, ...args: T): Promise<NextResponse> => {
+      const user = await getAuthorizedUser();
+
+      if (!user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (!user.permissions.includes(permission)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      return handler(req, ...args);
+    };
+  };
+}
+
+export function withRole(role: Role) {
+  return function <T extends unknown[]>(
+    handler: (req: NextRequest, ...args: T) => Promise<NextResponse>
+  ) {
+    return async (req: NextRequest, ...args: T): Promise<NextResponse> => {
+      const user = await getAuthorizedUser();
+
+      if (!user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const roleHierarchy: Role[] = ["user", "editor", "admin", "owner"];
+      const userRoleIndex = roleHierarchy.indexOf(user.role);
+      const requiredRoleIndex = roleHierarchy.indexOf(role);
+
+      if (userRoleIndex < requiredRoleIndex) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      return handler(req, ...args);
+    };
+  };
+}
+```
+
+```typescript title="app/api/admin/users/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { withPermission } from "@/lib/rbac/middleware";
+import { prisma } from "@/lib/db";
+
+const handler = async (req: NextRequest) => {
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return NextResponse.json(users);
+};
+
+export const GET = withPermission("users:manage")(handler);
+```
+
+```typescript title="components/permission-gate.tsx"
+import { getAuthorizedUser } from "@/lib/rbac/auth";
+import type { Permission } from "@/lib/rbac/permissions";
+
+interface PermissionGateProps {
+  permission: Permission;
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}
+
+export async function PermissionGate({
+  permission,
+  children,
+  fallback = null,
+}: PermissionGateProps) {
+  const user = await getAuthorizedUser();
+
+  if (!user?.permissions.includes(permission)) {
+    return <>{fallback}</>;
+  }
+
+  return <>{children}</>;
+}
+
+// Usage in a page:
+// <PermissionGate permission="admin:access">
+//   <AdminPanel />
+// </PermissionGate>
+```
+
+```typescript title="components/role-badge.tsx"
+import { ROLES, type Role } from "@/lib/rbac/permissions";
+
+const roleColors: Record<Role, string> = {
+  user: "bg-gray-500/10 text-gray-400",
+  editor: "bg-blue-500/10 text-blue-400",
+  admin: "bg-purple-500/10 text-purple-400",
+  owner: "bg-amber-500/10 text-amber-400",
+};
+
+export function RoleBadge({ role }: { role: Role }) {
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full ${roleColors[role]}`}>
+      {ROLES[role].name}
+    </span>
+  );
+}
+```
+
+## Configuration
+
+### Add Role to User Model
+
+```prisma
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  role  String @default("user")
+  // ... other fields
+}
+```
+
+### Initialize Default Admin
+
+```typescript
+// scripts/create-admin.ts
+import { prisma } from "@/lib/db";
+
+async function main() {
+  await prisma.user.update({
+    where: { email: "admin@example.com" },
+    data: { role: "owner" },
+  });
+}
+
+main();
+```
+
+## Usage
+
+### In Server Components
+
+```typescript
+import { PermissionGate } from "@/components/permission-gate";
+
+export default async function Dashboard() {
+  return (
+    <div>
+      <h1>Dashboard</h1>
+
+      <PermissionGate permission="admin:access">
+        <AdminSection />
+      </PermissionGate>
+
+      <PermissionGate permission="content:write" fallback={<p>Read-only access</p>}>
+        <Editor />
+      </PermissionGate>
+    </div>
+  );
+}
+```
+
+### In Server Actions
+
+```typescript
+"use server";
+
+import { requirePermission } from "@/lib/rbac/auth";
+
+export async function deleteUser(userId: string) {
+  await requirePermission("users:delete");
+
+  // Proceed with deletion
+  await prisma.user.delete({ where: { id: userId } });
+}
+```
+
+## Troubleshooting
+
+### Permission denied unexpectedly
+
+- Verify user's role in the database
+- Check that role is included in session callback
+- Ensure permission is spelled correctly (case-sensitive)
+
+### Role hierarchy not working
+
+- Check `roleHierarchy` array order
+- Verify role names match exactly
