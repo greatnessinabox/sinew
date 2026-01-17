@@ -25,6 +25,6 @@
     "@types/react-dom": "^19",
     "eslint": "^9.39.1",
     "prisma": "^6.9.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.3"
   }
 }
