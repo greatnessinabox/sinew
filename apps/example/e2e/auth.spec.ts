@@ -13,7 +13,7 @@ test.describe("Authentication", () => {
     await page.goto("/dashboard");
 
     // Should be redirected to login
-    await expect(page).toHaveURL("/login");
+    await expect(page).toHaveURL(/\/login(\?|$)/);
   });
 
   test("login page should show terms notice", async ({ page }) => {

@@ -3,6 +3,22 @@ import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+type PostSummary = {
+  id: string;
+  title: string;
+  published: boolean;
+  createdAt: Date;
+};
+
+type RecentPost = {
+  id: string;
+  title: string;
+  createdAt: Date;
+  author: {
+    name: string | null;
+  };
+};
+
 export default async function DashboardPage() {
   const session = await auth();
 
@@ -10,12 +26,12 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const posts = await prisma.post.findMany({
+  const posts: PostSummary[] = await prisma.post.findMany({
     where: { authorId: session.user.id },
     orderBy: { createdAt: "desc" },
   });
 
-  const allPosts = await prisma.post.findMany({
+  const allPosts: RecentPost[] = await prisma.post.findMany({
     where: { published: true },
     include: { author: { select: { name: true } } },
     orderBy: { createdAt: "desc" },

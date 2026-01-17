@@ -17,10 +17,10 @@ test.describe("Homepage", () => {
   test("should show feature cards", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByText("Authentication")).toBeVisible();
-    await expect(page.getByText("Database")).toBeVisible();
-    await expect(page.getByText("API Validation")).toBeVisible();
-    await expect(page.getByText("Type-Safe Env")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Authentication/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Database/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /API Validation/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Type-Safe Env/i })).toBeVisible();
   });
 
   test("should navigate to login page", async ({ page }) => {
