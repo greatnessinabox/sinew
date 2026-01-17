@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",
-    "@t3-oss/env-nextjs": "^0.12.0",
+    "@t3-oss/env-nextjs": "^0.13.10",
     "next": "16.1.0",
     "@auth/prisma-adapter": "2.11.0",
     "next-auth": "^5.0.0-beta.30",
