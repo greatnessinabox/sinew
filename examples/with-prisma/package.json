@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@repo/eslint-config": "*",
-    "@types/node": "^22",
+    "@types/node": "^25",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9.39.1",

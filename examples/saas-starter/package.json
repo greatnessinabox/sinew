@@ -28,7 +28,7 @@
   "devDependencies": {
     "@repo/eslint-config": "*",
     "@tailwindcss/postcss": "^4.1.18",
-    "@types/node": "^22",
+    "@types/node": "^25",
     "eslint": "^9.39.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
