@@ -24,7 +24,7 @@
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
     "@types/prompts": "^2.4.9",
-    "typescript": "5.9.2"
+    "typescript": "5.9.3"
   },
   "files": [
     "dist"
