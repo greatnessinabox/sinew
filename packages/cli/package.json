@@ -1,5 +1,5 @@
 {
-  "name": "sinew",
+  "name": "@greatnessinabox/sinew",
   "version": "1.0.0",
   "type": "module",
   "description": "CLI for adding infrastructure patterns to your project",
