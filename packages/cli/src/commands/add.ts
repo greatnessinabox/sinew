@@ -58,6 +58,10 @@ export async function add(patternArg?: string) {
     pattern = selectedPattern;
   }
 
+  if (!pattern) {
+    return;
+  }
+
   // Check if framework is supported
   if (!pattern.frameworks.includes(config.framework)) {
     console.log(pc.yellow(`  This pattern doesn't support ${config.framework} yet.\n`));

@@ -1,16 +1,16 @@
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
+import { FeatureCard, StepCard } from "./components/feature-card";
 import {
-  FiberPattern,
-  FiberPatternStatic,
   FiberAccent,
   FiberCorner,
+  FiberPattern,
+  FiberPatternStatic,
 } from "./components/fiber-pattern";
-import { FeatureCard, StepCard } from "./components/feature-card";
 import { Header } from "./components/header";
 import { TerminalHero } from "./components/terminal-hero";
 import { TestedBadge } from "./components/tested-badge";
-import { getPatternGroups, getTotalPatternCount, getFeaturedPatterns } from "./lib/patterns";
+import { getFeaturedPatterns, getPatternGroups, getTotalPatternCount } from "./lib/patterns";
 
 const patternGroups = getPatternGroups();
 const totalPatterns = getTotalPatternCount();
