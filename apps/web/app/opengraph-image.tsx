@@ -189,21 +189,20 @@ export default async function Image() {
         </div>
 
         {/* Headline */}
-        <h1
+        <div
           style={{
-            fontSize: "72px",
+            fontSize: "64px",
             fontWeight: 700,
             color: "#e8e8e8",
-            lineHeight: 1.1,
+            lineHeight: 1.15,
             letterSpacing: "-0.03em",
             margin: 0,
-            maxWidth: "900px",
+            maxWidth: "1000px",
           }}
         >
-          The connective tissue
-          <br />
-          <span style={{ color: "#e85a2c" }}>that makes apps work.</span>
-        </h1>
+          <div>The connective tissue</div>
+          <div style={{ color: "#e85a2c", marginTop: "8px" }}>that makes apps work.</div>
+        </div>
 
         {/* Subtitle */}
         <p
