@@ -17,31 +17,31 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Sinew - Infrastructure Patterns for Developers",
+  title: "Sinew - Copy-Paste Infrastructure Patterns for Developers",
   description:
     "The connective tissue that makes applications work. Copy-paste infrastructure patterns for databases, auth, deployment, and more.",
   metadataBase: new URL("https://sinew.marquis.codes"),
   openGraph: {
-    title: "Sinew - Infrastructure Patterns for Developers",
+    title: "Sinew - Copy-Paste Infrastructure Patterns for Developers",
     description:
       "The connective tissue that makes applications work. Copy-paste infrastructure patterns for databases, auth, deployment, and more.",
     siteName: "Sinew",
     type: "website",
     images: [
       {
-        url: "/opengraph-image",
+        url: "https://sinew.marquis.codes/opengraph-image",
         width: 1200,
         height: 630,
-        alt: "Sinew - Infrastructure Patterns for Developers",
+        alt: "Sinew - Copy-Paste Infrastructure Patterns for Developers",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Sinew - Infrastructure Patterns for Developers",
+    title: "Sinew - Copy-Paste Infrastructure Patterns for Developers",
     description:
       "The connective tissue that makes applications work. Copy-paste infrastructure patterns for databases, auth, deployment, and more.",
-    images: ["/opengraph-image"],
+    images: ["https://sinew.marquis.codes/opengraph-image"],
   },
 };
 
