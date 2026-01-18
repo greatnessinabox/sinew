@@ -82,7 +82,7 @@ export function StepExplainer({
 
         {/* Preview steps */}
         <div className="mt-6 w-full max-w-md">
-          <p className="text-muted mb-3 text-xs font-medium uppercase tracking-wider">
+          <p className="text-muted mb-3 text-xs font-medium tracking-wider uppercase">
             What you&apos;ll learn
           </p>
           <div className="space-y-2">
@@ -162,7 +162,7 @@ export function StepExplainer({
               <span className="text-sm font-medium">{idx + 1}</span>
             )}
             {s.status === "running" && (
-              <span className="bg-accent absolute -right-0.5 -top-0.5 h-2 w-2 animate-ping rounded-full" />
+              <span className="bg-accent absolute -top-0.5 -right-0.5 h-2 w-2 animate-ping rounded-full" />
             )}
           </button>
         ))}

@@ -1,10 +1,20 @@
 import Stripe from "stripe";
 import { env } from "@/env";
 
-export const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
-  apiVersion: "2025-04-30.basil",
-  typescript: true,
-});
+let _stripe: Stripe | null = null;
+
+export function getStripe() {
+  if (!_stripe) {
+    if (!env.STRIPE_SECRET_KEY) {
+      throw new Error("STRIPE_SECRET_KEY is not configured");
+    }
+    _stripe = new Stripe(env.STRIPE_SECRET_KEY, {
+      apiVersion: "2025-12-15.clover",
+      typescript: true,
+    });
+  }
+  return _stripe;
+}
 
 export const PLANS = {
   free: {

@@ -61,7 +61,7 @@ function Toast({
 
   return (
     <div
-      className={`animate-fade-in fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg transition-all ${
+      className={`animate-fade-in fixed right-4 bottom-4 z-50 flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg transition-all ${
         type === "success"
           ? "border-green-500/30 bg-green-500/10 text-green-400"
           : "border-red-500/30 bg-red-500/10 text-red-400"
@@ -146,11 +146,9 @@ export function Playground({ demo }: PlaygroundProps) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.key === "1") {
-        setOutputView("visualization");
+        setOutputView("steps");
       } else if (e.key === "2") {
         setOutputView("logs");
-      } else if (e.key === "3") {
-        setOutputView("steps");
       } else if (e.key === "ArrowLeft" && currentStep > 0) {
         setCurrentStep((s) => s - 1);
       } else if (e.key === "ArrowRight" && currentStep < steps.length - 1) {
@@ -401,7 +399,7 @@ export function Playground({ demo }: PlaygroundProps) {
                 </span>
               )}
               {outputView === "steps" && (
-                <span className="bg-accent absolute bottom-0 left-0 right-0 h-0.5" />
+                <span className="bg-accent absolute right-0 bottom-0 left-0 h-0.5" />
               )}
             </button>
             <button
@@ -417,7 +415,7 @@ export function Playground({ demo }: PlaygroundProps) {
                 </span>
               )}
               {outputView === "logs" && (
-                <span className="bg-accent absolute bottom-0 left-0 right-0 h-0.5" />
+                <span className="bg-accent absolute right-0 bottom-0 left-0 h-0.5" />
               )}
             </button>
           </div>

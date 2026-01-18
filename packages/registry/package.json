@@ -1,6 +1,7 @@
 {
   "name": "@sinew/registry",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "private": true,
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -20,6 +21,6 @@
   "devDependencies": {
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
-    "typescript": "5.9.2"
+    "typescript": "5.9.3"
   }
 }

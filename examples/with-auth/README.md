@@ -53,4 +53,4 @@ bun run dev
 ## Learn More
 
 - [NextAuth.js Docs](https://authjs.dev)
-- [Sinew Auth Patterns](https://sinew.dev/patterns/auth)
+- [Sinew Auth Patterns](https://sinew.marquis.codes/patterns/auth/oauth-setup)

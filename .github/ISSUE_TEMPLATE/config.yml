@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions & Discussions
+    url: https://github.com/greatnessinabox/sinew/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 📚 Documentation
+    url: https://sinew.marquis.codes
+    about: Check the documentation for guides and pattern references
+  - name: 🔒 Security Vulnerabilities
+    url: https://github.com/greatnessinabox/sinew/security/advisories/new
+    about: Report security issues privately (do not open a public issue)

@@ -7,11 +7,8 @@ const nextConfig: NextConfig = {
   // Strict mode for better development experience
   reactStrictMode: true,
 
-  // Enable experimental features
-  experimental: {
-    // Type-safe routes
-    typedRoutes: true,
-  },
+  // Type-safe routes (moved from experimental in Next.js 16)
+  typedRoutes: true,
 
   // Security headers
   async headers() {

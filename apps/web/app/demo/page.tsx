@@ -54,7 +54,7 @@ export default function DemoIndexPage() {
   }, {});
 
   return (
-    <div className="mx-auto max-w-6xl px-6 pb-16 pt-24">
+    <div className="mx-auto max-w-6xl px-6 pt-24 pb-16">
       {/* Hero */}
       <div className="mb-16 max-w-3xl">
         <div className="mb-4 flex items-center gap-3">
@@ -73,7 +73,7 @@ export default function DemoIndexPage() {
       <div className="space-y-12">
         {Object.entries(grouped).map(([category, categoryDemos]) => (
           <section key={category}>
-            <h2 className="text-muted mb-6 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
+            <h2 className="text-muted mb-6 flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="round"

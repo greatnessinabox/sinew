@@ -1,0 +1,125 @@
+# GitHub Labels Configuration
+# Apply with: gh label import .github/labels.yml
+# Or use: https://github.com/marketplace/actions/label-sync
+
+# Type labels
+- name: bug
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: feature
+  color: "a2eeef"
+  description: "New feature or request"
+
+- name: enhancement
+  color: "84b6eb"
+  description: "Improvement to existing functionality"
+
+- name: documentation
+  color: "0075ca"
+  description: "Improvements or additions to documentation"
+
+- name: question
+  color: "d876e3"
+  description: "Further information is requested"
+
+# Status labels
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+- name: wontfix
+  color: "ffffff"
+  description: "This will not be worked on"
+
+- name: duplicate
+  color: "cfd3d7"
+  description: "This issue or pull request already exists"
+
+- name: invalid
+  color: "e4e669"
+  description: "This doesn't seem right"
+
+- name: stale
+  color: "ededed"
+  description: "No recent activity"
+
+- name: pinned
+  color: "006b75"
+  description: "Pinned issue - won't be auto-closed"
+
+# Priority labels
+- name: "priority: critical"
+  color: "b60205"
+  description: "Needs immediate attention"
+
+- name: "priority: high"
+  color: "d93f0b"
+  description: "High priority"
+
+- name: "priority: medium"
+  color: "fbca04"
+  description: "Medium priority"
+
+- name: "priority: low"
+  color: "0e8a16"
+  description: "Low priority"
+
+# Area labels (auto-applied by labeler)
+- name: cli
+  color: "1d76db"
+  description: "Related to the CLI package"
+
+- name: patterns
+  color: "5319e7"
+  description: "Related to pattern definitions"
+
+- name: web
+  color: "c5def5"
+  description: "Related to the documentation website"
+
+- name: example
+  color: "bfdadc"
+  description: "Related to example apps"
+
+- name: ci
+  color: "fef2c0"
+  description: "Related to CI/CD"
+
+- name: dependencies
+  color: "0366d6"
+  description: "Related to dependencies"
+
+# Pattern category labels
+- name: database
+  color: "006b75"
+  description: "Database patterns"
+
+- name: auth
+  color: "d4c5f9"
+  description: "Authentication patterns"
+
+- name: testing
+  color: "bfd4f2"
+  description: "Testing patterns"
+
+- name: security
+  color: "b60205"
+  description: "Security-related"
+
+# PR labels
+- name: "work in progress"
+  color: "fef2c0"
+  description: "PR is still being worked on"
+
+- name: "needs review"
+  color: "fbca04"
+  description: "Ready for review"
+
+- name: "breaking change"
+  color: "b60205"
+  description: "Introduces breaking changes"

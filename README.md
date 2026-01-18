@@ -1,5 +1,10 @@
 # sinew
 
+[![CI](https://github.com/greatnessinabox/sinew/actions/workflows/ci.yml/badge.svg)](https://github.com/greatnessinabox/sinew/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@greatnessinabox/sinew.svg)](https://www.npmjs.com/package/@greatnessinabox/sinew)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
+
 **Production-ready infrastructure patterns you can copy and paste into your apps.**
 
 Sinew gives you battle-tested infrastructure code—database connections, authentication, deployment configs—that you own and can customize. No dependencies, no lock-in. Just copy what you need.
@@ -31,76 +36,98 @@ Or just browse [sinew.marquis.codes](https://sinew.marquis.codes) and copy the c
 
 ## Available Patterns
 
-**19 production-ready patterns across 10 categories**
+**30 production-ready patterns across 10 categories**
 
 ### Database
 
-| Pattern                                                     | Description                                          |
-| ----------------------------------------------------------- | ---------------------------------------------------- |
-| [Connection Pooling](/patterns/database/connection-pooling) | Serverless-ready Prisma setup with singleton pattern |
-| [Prisma Edge Setup](/patterns/database/prisma-edge)         | Configure Prisma for edge runtime with Accelerate    |
-| [Drizzle Config](/patterns/database/drizzle-config)         | Type-safe Drizzle ORM setup with migrations          |
+| Pattern                                                                                | Description                                          |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| [Connection Pooling](https://sinew.marquis.codes/patterns/database/connection-pooling) | Serverless-ready Prisma setup with singleton pattern |
+| [Prisma Edge](https://sinew.marquis.codes/patterns/database/prisma-edge)               | Configure Prisma for edge runtime with Accelerate    |
+| [Drizzle Config](https://sinew.marquis.codes/patterns/database/drizzle-config)         | Type-safe Drizzle ORM setup with migrations          |
 
 ### Authentication
 
-| Pattern                                       | Description                                      |
-| --------------------------------------------- | ------------------------------------------------ |
-| [OAuth Setup](/patterns/auth/oauth-setup)     | Auth.js with GitHub/Google and database sessions |
-| [Session Management](/patterns/auth/sessions) | Secure session handling with database storage    |
-| [RBAC Patterns](/patterns/auth/rbac)          | Role-based access control implementation         |
+| Pattern                                                                  | Description                                      |
+| ------------------------------------------------------------------------ | ------------------------------------------------ |
+| [OAuth Setup](https://sinew.marquis.codes/patterns/auth/oauth-setup)     | Auth.js with GitHub/Google and database sessions |
+| [Session Management](https://sinew.marquis.codes/patterns/auth/sessions) | Secure session handling with database storage    |
+| [RBAC Patterns](https://sinew.marquis.codes/patterns/auth/rbac)          | Role-based access control implementation         |
 
 ### API
 
-| Pattern                                        | Description                                     |
-| ---------------------------------------------- | ----------------------------------------------- |
-| [Rate Limiting](/patterns/api/rate-limiting)   | Sliding window rate limiting with Upstash Redis |
-| [API Validation](/patterns/api/api-validation) | Type-safe request/response validation with Zod  |
-| [Error Handling](/patterns/api/error-handling) | Custom error classes and structured responses   |
-
-### Testing
-
-| Pattern                                            | Description                                             |
-| -------------------------------------------------- | ------------------------------------------------------- |
-| [Vitest Setup](/patterns/testing/vitest-setup)     | Unit and integration testing with React Testing Library |
-| [Playwright E2E](/patterns/testing/playwright-e2e) | End-to-end testing with page objects and CI config      |
+| Pattern                                                                   | Description                                          |
+| ------------------------------------------------------------------------- | ---------------------------------------------------- |
+| [Rate Limiting](https://sinew.marquis.codes/patterns/api/rate-limiting)   | Sliding window rate limiting with in-memory or Redis |
+| [Validation](https://sinew.marquis.codes/patterns/api/validation)         | Type-safe request/response validation with Zod       |
+| [Error Handling](https://sinew.marquis.codes/patterns/api/error-handling) | Custom error classes and structured responses        |
 
 ### Caching
 
-| Pattern                                      | Description                                       |
-| -------------------------------------------- | ------------------------------------------------- |
-| [Redis Cache](/patterns/caching/redis-cache) | Redis caching with Upstash and cache invalidation |
+| Pattern                                                                         | Description                                           |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| [In-Memory Cache](https://sinew.marquis.codes/patterns/caching/in-memory-cache) | LRU cache for serverless with zero dependencies       |
+| [Next.js Cache](https://sinew.marquis.codes/patterns/caching/nextjs-cache)      | Built-in caching with unstable_cache and revalidation |
+| [Redis Cache](https://sinew.marquis.codes/patterns/caching/redis-cache)         | Redis caching with Upstash and cache invalidation     |
+
+### Testing
+
+| Pattern                                                                             | Description                                        |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------- |
+| [Vitest Setup](https://sinew.marquis.codes/patterns/testing/vitest-setup)           | Unit and integration testing configuration         |
+| [Playwright E2E](https://sinew.marquis.codes/patterns/testing/playwright-e2e)       | End-to-end testing with page objects and CI config |
+| [Component Testing](https://sinew.marquis.codes/patterns/testing/component-testing) | React component testing with Testing Library       |
+| [MSW Mocking](https://sinew.marquis.codes/patterns/testing/msw-mocking)             | API mocking with Mock Service Worker               |
 
 ### Email
 
-| Pattern                                      | Description                                    |
-| -------------------------------------------- | ---------------------------------------------- |
-| [Resend Email](/patterns/email/resend-email) | Transactional email with React Email templates |
+| Pattern                                                             | Description                                    |
+| ------------------------------------------------------------------- | ---------------------------------------------- |
+| [Resend](https://sinew.marquis.codes/patterns/email/resend-email)   | Transactional email with React Email templates |
+| [Nodemailer](https://sinew.marquis.codes/patterns/email/nodemailer) | Free email sending with SMTP providers         |
+| [AWS SES](https://sinew.marquis.codes/patterns/email/aws-ses)       | Cost-effective email at scale                  |
 
 ### Payments
 
-| Pattern                                               | Description                                    |
-| ----------------------------------------------------- | ---------------------------------------------- |
-| [Stripe Payments](/patterns/payments/stripe-payments) | Checkout sessions, webhooks, and subscriptions |
+| Pattern                                                                      | Description                                    |
+| ---------------------------------------------------------------------------- | ---------------------------------------------- |
+| [Stripe](https://sinew.marquis.codes/patterns/payments/stripe-payments)      | Checkout sessions, webhooks, and subscriptions |
+| [LemonSqueezy](https://sinew.marquis.codes/patterns/payments/lemonsqueezy)   | Payments with built-in tax handling            |
+| [Usage Billing](https://sinew.marquis.codes/patterns/payments/usage-billing) | Metered billing with Stripe                    |
 
 ### Monitoring
 
-| Pattern                                                     | Description                               |
-| ----------------------------------------------------------- | ----------------------------------------- |
-| [Sentry Monitoring](/patterns/monitoring/sentry-monitoring) | Error tracking and performance monitoring |
+| Pattern                                                                        | Description                                          |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| [Sentry](https://sinew.marquis.codes/patterns/monitoring/sentry-monitoring)    | Error tracking and performance monitoring            |
+| [Logging](https://sinew.marquis.codes/patterns/monitoring/logging)             | Structured JSON logging with Pino                    |
+| [OpenTelemetry](https://sinew.marquis.codes/patterns/monitoring/opentelemetry) | Open standard observability with tracing and metrics |
 
 ### Environment
 
-| Pattern                                              | Description                                      |
-| ---------------------------------------------------- | ------------------------------------------------ |
-| [Type-safe Env](/patterns/environment/type-safe-env) | Runtime-validated environment variables with Zod |
-| [Secrets Management](/patterns/environment/secrets)  | Secure secrets handling with encryption at rest  |
+| Pattern                                                                         | Description                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [Type-safe Env](https://sinew.marquis.codes/patterns/environment/type-safe-env) | Runtime-validated environment variables with Zod |
+| [Secrets Management](https://sinew.marquis.codes/patterns/environment/secrets)  | Secure secrets handling with encryption at rest  |
 
 ### Deployment
 
-| Pattern                                               | Description                               |
-| ----------------------------------------------------- | ----------------------------------------- |
-| [Docker Config](/patterns/deployment/docker)          | Multi-stage Docker builds for Next.js     |
-| [GitHub Actions](/patterns/deployment/github-actions) | CI/CD pipelines for testing and deploying |
+| Pattern                                                                          | Description                                             |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| [Docker](https://sinew.marquis.codes/patterns/deployment/docker)                 | Multi-stage Docker builds for Next.js                   |
+| [GitHub Actions](https://sinew.marquis.codes/patterns/deployment/github-actions) | CI/CD pipelines for testing and deploying               |
+| [Vercel](https://sinew.marquis.codes/patterns/deployment/vercel)                 | Vercel deployment with edge functions and optimizations |
+
+## Interactive Demos
+
+Try patterns live at [sinew.marquis.codes/demo](https://sinew.marquis.codes/demo):
+
+- **In-Memory Cache** — Watch LRU eviction in action
+- **API Validation** — See Zod validation errors in real-time
+- **Rate Limiting** — Experience request throttling firsthand
+- **Error Handling** — Trigger different error types and see responses
+- **Logging** — See structured logs stream with automatic redaction
+- **Sessions** — Create, revoke, and manage user sessions
 
 ## CLI Usage
 
@@ -110,10 +137,10 @@ sinew init
 
 # Add patterns
 sinew add database/connection-pooling
-sinew add database/drizzle-config
-sinew add auth/oauth-setup
-sinew add auth/rbac
-sinew add environment/type-safe-env
+sinew add caching/in-memory-cache
+sinew add auth/sessions
+sinew add api/validation
+sinew add monitoring/logging
 sinew add deployment/docker
 
 # List all available patterns
@@ -145,7 +172,7 @@ See the [examples directory](./examples) for more details.
 
 ## Project Structure
 
-```
+```text
 sinew/
 ├── apps/
 │   ├── web/              # Documentation site (Next.js)

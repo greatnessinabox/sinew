@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 type PackageManager = "npm" | "pnpm" | "bun" | "yarn";
 
@@ -12,6 +12,53 @@ interface PackageManagerTabsProps {
 }
 
 const STORAGE_KEY = "sinew-package-manager";
+const DEFAULT_MANAGER: PackageManager = "bun";
+
+const managerListeners = new Set<() => void>();
+
+const notifyManagerListeners = () => {
+  managerListeners.forEach((listener) => listener());
+};
+
+const subscribeToManager = (listener: () => void) => {
+  managerListeners.add(listener);
+
+  if (typeof window === "undefined") {
+    return () => {
+      managerListeners.delete(listener);
+    };
+  }
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY) {
+      listener();
+    }
+  };
+
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    managerListeners.delete(listener);
+    window.removeEventListener("storage", handleStorage);
+  };
+};
+
+const getManagerSnapshot = (): PackageManager => {
+  if (typeof window === "undefined") return DEFAULT_MANAGER;
+  const stored = localStorage.getItem(STORAGE_KEY) as PackageManager | null;
+  return stored && commands[stored] ? stored : DEFAULT_MANAGER;
+};
+
+const getManagerServerSnapshot = (): PackageManager => DEFAULT_MANAGER;
+
+const setStoredManager = (manager: PackageManager) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEY, manager);
+  notifyManagerListeners();
+};
+
+const useStoredManager = (): PackageManager =>
+  useSyncExternalStore(subscribeToManager, getManagerSnapshot, getManagerServerSnapshot);
 
 const commands: Record<PackageManager, { install: string; installDev: string; run: string }> = {
   npm: { install: "npm install", installDev: "npm install -D", run: "npx" },
@@ -21,19 +68,11 @@ const commands: Record<PackageManager, { install: string; installDev: string; ru
 };
 
 export function PackageManagerTabs({ packages, dev = false }: PackageManagerTabsProps) {
-  const [manager, setManager] = useState<PackageManager>("bun");
+  const manager = useStoredManager();
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as PackageManager | null;
-    if (stored && commands[stored]) {
-      setManager(stored);
-    }
-  }, []);
-
   const handleSelect = (pm: PackageManager) => {
-    setManager(pm);
-    localStorage.setItem(STORAGE_KEY, pm);
+    setStoredManager(pm);
   };
 
   const command = dev ? commands[manager].installDev : commands[manager].install;
@@ -87,19 +126,11 @@ interface RunCommandProps {
 }
 
 export function RunCommand({ command }: RunCommandProps) {
-  const [manager, setManager] = useState<PackageManager>("bun");
+  const manager = useStoredManager();
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as PackageManager | null;
-    if (stored && commands[stored]) {
-      setManager(stored);
-    }
-  }, []);
-
   const handleSelect = (pm: PackageManager) => {
-    setManager(pm);
-    localStorage.setItem(STORAGE_KEY, pm);
+    setStoredManager(pm);
   };
 
   const fullCommand = `${commands[manager].run} ${command}`;

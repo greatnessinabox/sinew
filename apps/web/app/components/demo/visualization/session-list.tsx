@@ -46,15 +46,15 @@ function TabletIcon({ className }: { className?: string }) {
   );
 }
 
-function getDeviceIcon(device: string) {
+function renderDeviceIcon(device: string, className: string) {
   const lower = device.toLowerCase();
   if (lower.includes("iphone") || lower.includes("android") || lower.includes("mobile")) {
-    return SmartphoneIcon;
+    return <SmartphoneIcon className={className} />;
   }
   if (lower.includes("ipad") || lower.includes("tablet")) {
-    return TabletIcon;
+    return <TabletIcon className={className} />;
   }
-  return MonitorIcon;
+  return <MonitorIcon className={className} />;
 }
 
 function formatTimeAgo(timestamp: number): string {
@@ -81,7 +81,6 @@ function formatExpiresIn(timestamp: number): string {
 }
 
 function SessionCard({ session, isLast }: { session: SessionEntry; isLast: boolean }) {
-  const DeviceIcon = getDeviceIcon(session.device);
   const [, setTick] = useState(0);
 
   // Update time display
@@ -102,7 +101,10 @@ function SessionCard({ session, isLast }: { session: SessionEntry; isLast: boole
           session.isCurrent ? "bg-accent/20" : "bg-surface"
         }`}
       >
-        <DeviceIcon className={`h-5 w-5 ${session.isCurrent ? "text-accent" : "text-muted"}`} />
+        {renderDeviceIcon(
+          session.device,
+          `h-5 w-5 ${session.isCurrent ? "text-accent" : "text-muted"}`
+        )}
       </div>
 
       {/* Session Info */}

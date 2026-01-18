@@ -422,14 +422,14 @@ const getPosts = cached(
         title: "Getting Started with In-Memory Caching",
         slug: "in-memory-caching",
         excerpt: "Learn how to implement efficient caching without dependencies...",
-        publishedAt: new Date("2024-01-15"),
+        publishedAt: new Date("2025-01-15"),
       },
       {
         id: "2",
         title: "LRU Cache Explained",
         slug: "lru-cache-explained",
         excerpt: "Understanding the Least Recently Used eviction strategy...",
-        publishedAt: new Date("2024-01-10"),
+        publishedAt: new Date("2025-01-10"),
       },
     ];
   },

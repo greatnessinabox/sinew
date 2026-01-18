@@ -269,7 +269,7 @@ export default async function PatternPage({
 
       <main
         id="main-content"
-        className="relative z-10 mx-auto max-w-4xl px-6 pb-16 pt-24"
+        className="relative z-10 mx-auto max-w-4xl px-6 pt-24 pb-16"
         role="main"
       >
         {/* Breadcrumb */}

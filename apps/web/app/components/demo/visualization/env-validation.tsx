@@ -107,7 +107,7 @@ export function EnvValidationVisualization({ data }: EnvValidationVisualizationP
                       {v.value.length > 20 ? v.value.slice(0, 20) + "..." : v.value}
                     </span>
                   ) : (
-                    <span className="text-xs italic text-red-400">undefined</span>
+                    <span className="text-xs text-red-400 italic">undefined</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-center">

@@ -5,16 +5,12 @@ export async function list() {
   console.log(pc.bold("\n  Available patterns\n"));
 
   // Group by category
-  const grouped = patterns.reduce(
-    (acc, pattern) => {
-      if (!acc[pattern.category]) {
-        acc[pattern.category] = [];
-      }
-      acc[pattern.category].push(pattern);
-      return acc;
-    },
-    {} as Record<string, typeof patterns>
-  );
+  const grouped = patterns.reduce<Record<string, typeof patterns>>((acc, pattern) => {
+    const list = acc[pattern.category] ?? [];
+    list.push(pattern);
+    acc[pattern.category] = list;
+    return acc;
+  }, {});
 
   for (const [category, categoryPatterns] of Object.entries(grouped)) {
     console.log(pc.dim(`  ${category}/`));

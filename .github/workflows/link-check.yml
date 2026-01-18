@@ -1,0 +1,47 @@
+name: Link Checker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "**/*.mdx"
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "**/*.mdx"
+  schedule:
+    - cron: "0 0 * * 0" # Weekly on Sunday
+  workflow_dispatch:
+
+jobs:
+  check-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >
+            --verbose
+            --no-progress
+            --accept 200,204,206,301,302,308
+            --exclude-mail
+            --exclude "localhost"
+            --exclude "127.0.0.1"
+            --exclude "0.0.0.0"
+            --exclude "example.com"
+            --exclude "your-"
+            --exclude "placeholder"
+            "**/*.md"
+            "**/*.mdx"
+          fail: true
+
+      - name: Create issue on failure
+        if: failure() && github.event_name == 'schedule'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "🔗 Broken links detected"
+          content-filepath: ./lychee/out.md
+          labels: bug, documentation

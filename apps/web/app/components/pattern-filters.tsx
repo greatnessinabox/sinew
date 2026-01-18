@@ -126,7 +126,7 @@ export function PatternFilters({ patterns, categories }: PatternFiltersProps) {
           {/* Category filter */}
           <div className="flex-1">
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-muted text-xs font-medium uppercase tracking-wider">
+              <span className="text-muted text-xs font-medium tracking-wider uppercase">
                 Category
               </span>
               {selectedCategory && (
@@ -181,7 +181,7 @@ export function PatternFilters({ patterns, categories }: PatternFiltersProps) {
           {/* Complexity filter */}
           <div className="lg:w-auto">
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-muted text-xs font-medium uppercase tracking-wider">
+              <span className="text-muted text-xs font-medium tracking-wider uppercase">
                 Complexity
               </span>
               {selectedComplexity && (
@@ -272,7 +272,7 @@ export function PatternFilters({ patterns, categories }: PatternFiltersProps) {
                   className="border-border bg-surface/50 hover:border-accent/40 hover:bg-surface group relative rounded-xl border p-5 transition-all"
                 >
                   {/* Status indicator */}
-                  <div className="absolute right-4 top-4 flex items-center gap-2">
+                  <div className="absolute top-4 right-4 flex items-center gap-2">
                     {pattern.alternatives && pattern.alternatives.length > 0 && (
                       <span className="text-xs text-amber-400" title="Paid alternatives available">
                         *

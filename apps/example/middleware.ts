@@ -1,4 +1,10 @@
-export { auth as middleware } from "@/lib/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/lib/auth.config";
+
+// Use edge-compatible auth config (no database adapter)
+const { auth } = NextAuth(authConfig);
+
+export default auth;
 
 export const config = {
   matcher: [

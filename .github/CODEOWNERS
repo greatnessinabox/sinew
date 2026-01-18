@@ -1,0 +1,22 @@
+# Default owners for everything in the repo
+* @greatnessinabox
+
+# CLI package
+/packages/cli/ @greatnessinabox
+
+# Pattern registry
+/packages/registry/ @greatnessinabox
+
+# Documentation website
+/apps/web/ @greatnessinabox
+
+# Example apps
+/apps/example/ @greatnessinabox
+/examples/ @greatnessinabox
+
+# CI/CD and GitHub configuration
+/.github/ @greatnessinabox
+
+# Root configuration files
+/*.json @greatnessinabox
+/*.config.* @greatnessinabox

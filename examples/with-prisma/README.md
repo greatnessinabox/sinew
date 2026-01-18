@@ -47,4 +47,4 @@ bun run dev
 ## Learn More
 
 - [Prisma Docs](https://www.prisma.io/docs)
-- [Sinew Database Patterns](https://sinew.dev/patterns/database)
+- [Sinew Database Patterns](https://sinew.marquis.codes/patterns/database/connection-pooling)

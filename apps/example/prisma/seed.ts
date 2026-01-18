@@ -1,6 +1,10 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log("🌱 Seeding database...");
@@ -12,7 +16,7 @@ async function main() {
     create: {
       email: "admin@example.com",
       name: "Admin User",
-      role: Role.ADMIN,
+      role: "ADMIN",
       emailVerified: new Date(),
     },
   });
@@ -24,7 +28,7 @@ async function main() {
     create: {
       email: "user@example.com",
       name: "Test User",
-      role: Role.USER,
+      role: "USER",
       emailVerified: new Date(),
     },
   });

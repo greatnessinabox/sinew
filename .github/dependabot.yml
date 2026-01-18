@@ -7,6 +7,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
     groups:
       dev-dependencies:
         dependency-type: development
@@ -25,6 +29,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - web
+    commit-message:
+      prefix: "chore(deps)"
     groups:
       next-ecosystem:
         patterns:
@@ -41,6 +50,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - cli
+    commit-message:
+      prefix: "chore(deps)"
 
   # GitHub Actions
   - package-ecosystem: github-actions
@@ -48,3 +62,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(ci)"

@@ -79,6 +79,6 @@ bun run dev
 
 ## Learn More
 
-- [Sinew Patterns](https://sinew.dev/patterns)
+- [Sinew Patterns](https://sinew.marquis.codes/patterns)
 - [Stripe Docs](https://stripe.com/docs)
 - [Resend Docs](https://resend.com/docs)

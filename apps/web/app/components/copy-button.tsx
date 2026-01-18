@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 interface CopyButtonProps {
   text: string;
@@ -11,11 +11,11 @@ interface CopyButtonProps {
 
 // Detect macOS for keyboard shortcut display
 function useIsMac() {
-  const [isMac, setIsMac] = useState(true);
-  useEffect(() => {
-    setIsMac(navigator.platform.toUpperCase().includes("MAC"));
-  }, []);
-  return isMac;
+  return useSyncExternalStore(
+    () => () => {},
+    () => navigator.platform.toUpperCase().includes("MAC"),
+    () => true
+  );
 }
 
 export function CopyButton({ text, variant = "default", smartCopy = false }: CopyButtonProps) {
@@ -45,7 +45,7 @@ export function CopyButton({ text, variant = "default", smartCopy = false }: Cop
       >
         {copied ? <CheckIcon className="text-accent h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
         {/* Keyboard shortcut hint */}
-        <span className="bg-surface border-border pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] opacity-0 transition-opacity group-hover/copy:opacity-100">
+        <span className="bg-surface border-border pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded border px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap opacity-0 transition-opacity group-hover/copy:opacity-100">
           {shortcutHint}
         </span>
       </button>

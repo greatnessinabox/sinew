@@ -147,7 +147,7 @@ export function KeyboardShortcutsHint() {
   if (!visible) return null;
 
   return (
-    <div className="animate-fade-in fixed bottom-4 right-4 z-50">
+    <div className="animate-fade-in fixed right-4 bottom-4 z-50">
       <div className="bg-surface border-border text-muted flex items-center gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg">
         <span>Press</span>
         <kbd className="border-border bg-background rounded border px-1.5 py-0.5 font-mono text-xs">

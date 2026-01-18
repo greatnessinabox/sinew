@@ -248,14 +248,14 @@ const getPosts = cache(
         title: "Getting Started with Next.js Caching",
         slug: "nextjs-caching",
         excerpt: "Learn how to use Next.js built-in caching features...",
-        publishedAt: new Date("2024-01-15"),
+        publishedAt: new Date("2025-01-15"),
       },
       {
         id: "2",
         title: "Server Components Deep Dive",
         slug: "server-components",
         excerpt: "Understanding React Server Components...",
-        publishedAt: new Date("2024-01-10"),
+        publishedAt: new Date("2025-01-10"),
       },
     ];
   },

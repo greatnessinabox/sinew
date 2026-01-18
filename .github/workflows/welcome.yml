@@ -1,0 +1,44 @@
+name: Welcome New Contributors
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            👋 Thanks for opening your first issue in Sinew!
+
+            We appreciate you taking the time to report this. A maintainer will review it soon.
+
+            **While you wait:**
+            - Make sure you've searched for [existing issues](https://github.com/greatnessinabox/sinew/issues) to avoid duplicates
+            - Check our [documentation](https://sinew.marquis.codes) for common solutions
+            - Join the conversation and help others in the community
+
+            Thanks for helping make Sinew better! 🎉
+          pr-message: |
+            👋 Thanks for your first pull request to Sinew!
+
+            We're excited to review your contribution. A maintainer will take a look soon.
+
+            **Checklist for a smooth review:**
+            - [ ] Code follows the existing style (run `bun run lint`)
+            - [ ] Tests pass (run `bun run check-types`)
+            - [ ] Commit messages follow [conventional commits](https://www.conventionalcommits.org/)
+            - [ ] Documentation is updated if needed
+
+            Need help? Feel free to ask questions in the PR comments.
+
+            Thanks for contributing! 🚀

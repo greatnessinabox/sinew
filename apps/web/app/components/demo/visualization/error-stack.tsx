@@ -44,7 +44,8 @@ function CheckCircleIcon({ className }: { className?: string }) {
 
 export function ErrorStackVisualization({ data }: ErrorStackVisualizationProps) {
   const { errorType, statusCode, message, code, handled, stack } = data;
-  const colors = statusCodeColors[statusCode] || statusCodeColors[500];
+  const defaultColors = { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/30" };
+  const colors = statusCodeColors[statusCode] ?? defaultColors;
 
   return (
     <div className="space-y-4">
@@ -113,7 +114,7 @@ export function ErrorStackVisualization({ data }: ErrorStackVisualizationProps) 
       {/* Stack Trace (if available) */}
       {stack && stack.length > 0 && (
         <div className="border-border bg-surface rounded-lg border p-4">
-          <h5 className="text-muted mb-2 text-xs font-semibold uppercase tracking-wider">
+          <h5 className="text-muted mb-2 text-xs font-semibold tracking-wider uppercase">
             Stack Trace
           </h5>
           <div className="space-y-1 font-mono text-xs">

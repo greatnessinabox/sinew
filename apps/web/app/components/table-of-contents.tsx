@@ -44,9 +44,9 @@ export function TableOfContents({ items }: TableOfContentsProps) {
   if (items.length === 0) return null;
 
   return (
-    <nav className="fixed right-8 top-32 hidden w-56 xl:block" aria-label="Table of contents">
+    <nav className="fixed top-32 right-8 hidden w-56 xl:block" aria-label="Table of contents">
       <div className="border-border border-l pl-4">
-        <p className="text-muted mb-4 text-xs font-semibold uppercase tracking-wider">
+        <p className="text-muted mb-4 text-xs font-semibold tracking-wider uppercase">
           On this page
         </p>
         <ul className="space-y-2">

@@ -1,0 +1,71 @@
+# Labeler configuration for automatic PR labeling
+# Used by the labeler workflow
+
+# Documentation changes
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - "**/*.mdx"
+          - "apps/web/content/**"
+
+# CLI changes
+cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/cli/**"
+
+# Registry/patterns changes
+patterns:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/registry/**"
+
+# Web app changes
+web:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/**"
+
+# Example app changes
+example:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/example/**"
+          - "examples/**"
+
+# CI/CD changes
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+
+# Dependencies
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/package.json"
+          - "bun.lock"
+
+# Database patterns
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/registry/src/patterns/database/**"
+          - "apps/web/content/patterns/database/**"
+
+# Auth patterns
+auth:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/registry/src/patterns/auth/**"
+          - "apps/web/content/patterns/auth/**"
+
+# Testing
+testing:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.spec.ts"
+          - "**/*.test.ts"
+          - "**/e2e/**"
+          - "**/playwright*"

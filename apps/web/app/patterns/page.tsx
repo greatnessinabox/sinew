@@ -17,7 +17,7 @@ export default function PatternsPage() {
 
       <main
         id="main-content"
-        className="relative z-10 mx-auto max-w-6xl px-6 pb-16 pt-24"
+        className="relative z-10 mx-auto max-w-6xl px-6 pt-24 pb-16"
         role="main"
       >
         <div className="mb-12 max-w-2xl">

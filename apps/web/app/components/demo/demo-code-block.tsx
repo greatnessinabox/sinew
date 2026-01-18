@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 interface DemoCodeBlockProps {
   code: string;
@@ -35,11 +35,11 @@ function parseLineRanges(rangeStr: string | undefined): Set<number> {
 }
 
 export function DemoCodeBlock({ code, language, highlightedLines }: DemoCodeBlockProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const isClient = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   const lines = useMemo(() => code.split("\n"), [code]);
   const highlightedSet = useMemo(() => parseLineRanges(highlightedLines), [highlightedLines]);
@@ -105,7 +105,7 @@ export function DemoCodeBlock({ code, language, highlightedLines }: DemoCodeBloc
     return result;
   };
 
-  if (!mounted) {
+  if (!isClient) {
     return (
       <div className="bg-code-bg border-border rounded-lg border">
         <div className="border-border flex items-center gap-2 border-b px-4 py-2">
@@ -152,7 +152,7 @@ export function DemoCodeBlock({ code, language, highlightedLines }: DemoCodeBloc
                   }`}
                 >
                   <td
-                    className={`border-border select-none border-r px-4 py-0.5 text-right font-mono text-xs ${
+                    className={`border-border border-r px-4 py-0.5 text-right font-mono text-xs select-none ${
                       isHighlighted ? "text-accent" : "text-muted/50"
                     }`}
                     style={{ width: "3rem" }}

@@ -160,7 +160,7 @@ export async function CodeBlock({
           <div className="flex items-center gap-3">
             <span className="text-muted font-mono text-sm">{filename}</span>
             {showLanguage && (
-              <span className="text-muted/60 bg-surface border-border rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider">
+              <span className="text-muted/60 bg-surface border-border rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase">
                 {displayLang}
               </span>
             )}
@@ -172,9 +172,9 @@ export async function CodeBlock({
       {/* Code content with scroll shadows */}
       <div className="relative">
         {/* Left scroll shadow */}
-        <div className="from-code-bg pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-8 bg-gradient-to-r to-transparent opacity-0 transition-opacity group-has-[.code-scroll]:opacity-100" />
+        <div className="from-code-bg pointer-events-none absolute top-0 bottom-0 left-0 z-10 w-8 bg-gradient-to-r to-transparent opacity-0 transition-opacity group-has-[.code-scroll]:opacity-100" />
         {/* Right scroll shadow */}
-        <div className="from-code-bg pointer-events-none absolute bottom-0 right-0 top-0 z-10 w-8 bg-gradient-to-l to-transparent" />
+        <div className="from-code-bg pointer-events-none absolute top-0 right-0 bottom-0 z-10 w-8 bg-gradient-to-l to-transparent" />
 
         <div
           className={`code-scroll bg-code-bg overflow-x-auto p-4 text-sm ${
@@ -185,15 +185,15 @@ export async function CodeBlock({
 
         {/* Copy button (when no filename header) */}
         {!filename && (
-          <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100">
             <CopyButton text={code} variant="minimal" smartCopy={smartCopy} />
           </div>
         )}
 
         {/* Language badge at bottom right (when no filename header) */}
         {!filename && showLanguage && (
-          <div className="absolute bottom-2 right-2 opacity-40 transition-opacity group-hover:opacity-80">
-            <span className="text-muted/60 bg-code-bg/80 border-border/30 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider">
+          <div className="absolute right-2 bottom-2 opacity-40 transition-opacity group-hover:opacity-80">
+            <span className="text-muted/60 bg-code-bg/80 border-border/30 rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase">
               {displayLang}
             </span>
           </div>

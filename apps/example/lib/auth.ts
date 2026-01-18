@@ -1,10 +1,12 @@
 import NextAuth from "next-auth";
+import type { Adapter } from "next-auth/adapters";
+import { PrismaAdapter } from "@auth/prisma-adapter";
 import GitHub from "next-auth/providers/github";
 import Google from "next-auth/providers/google";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./db";
-import { env } from "@/env";
-import type { Role } from "@prisma/client";
+import { authConfig } from "./auth.config";
+
+type Role = "USER" | "ADMIN";
 
 declare module "next-auth" {
   interface Session {
@@ -22,27 +24,21 @@ declare module "next-auth" {
   }
 }
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+const nextAuth = NextAuth({
+  ...authConfig,
   providers: [
-    ...(env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET
-      ? [
-          GitHub({
-            clientId: env.AUTH_GITHUB_ID,
-            clientSecret: env.AUTH_GITHUB_SECRET,
-          }),
-        ]
-      : []),
-    ...(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET
-      ? [
-          Google({
-            clientId: env.AUTH_GOOGLE_ID,
-            clientSecret: env.AUTH_GOOGLE_SECRET,
-          }),
-        ]
-      : []),
+    GitHub({
+      clientId: process.env.AUTH_GITHUB_ID,
+      clientSecret: process.env.AUTH_GITHUB_SECRET,
+    }),
+    Google({
+      clientId: process.env.AUTH_GOOGLE_ID,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+    }),
   ],
+  adapter: PrismaAdapter(prisma) as Adapter,
   callbacks: {
+    ...authConfig.callbacks,
     session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
@@ -50,26 +46,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return session;
     },
-    authorized({ auth, request: { nextUrl } }) {
-      const isLoggedIn = !!auth?.user;
-      const isOnDashboard = nextUrl.pathname.startsWith("/dashboard");
-      const isOnAdmin = nextUrl.pathname.startsWith("/admin");
-
-      if (isOnAdmin) {
-        if (isLoggedIn && auth.user.role === "ADMIN") return true;
-        return false;
-      }
-
-      if (isOnDashboard) {
-        if (isLoggedIn) return true;
-        return false;
-      }
-
-      return true;
-    },
-  },
-  pages: {
-    signIn: "/login",
-    error: "/login",
   },
 });
+
+export const { handlers, signIn, signOut, auth } = nextAuth;

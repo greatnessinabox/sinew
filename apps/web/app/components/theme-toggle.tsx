@@ -1,8 +1,66 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark" | "system";
+const THEME_STORAGE_KEY = "theme";
+
+const themeListeners = new Set<() => void>();
+
+const notifyThemeListeners = () => {
+  themeListeners.forEach((listener) => listener());
+};
+
+const subscribeToTheme = (listener: () => void) => {
+  themeListeners.add(listener);
+
+  if (typeof window === "undefined") {
+    return () => {
+      themeListeners.delete(listener);
+    };
+  }
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === THEME_STORAGE_KEY) {
+      listener();
+    }
+  };
+
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    themeListeners.delete(listener);
+    window.removeEventListener("storage", handleStorage);
+  };
+};
+
+const getThemeSnapshot = (): Theme => {
+  if (typeof window === "undefined") return "system";
+  const stored = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
+  return stored ?? "system";
+};
+
+const getThemeServerSnapshot = (): Theme => "system";
+
+const setStoredTheme = (theme: Theme) => {
+  if (typeof window === "undefined") return;
+  if (theme === "system") {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+  } else {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }
+  notifyThemeListeners();
+};
+
+const useStoredTheme = (): Theme =>
+  useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getThemeServerSnapshot);
+
+const useIsClient = (): boolean =>
+  useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
 function SunIcon({ className }: { className?: string }) {
   return (
@@ -59,37 +117,27 @@ function SystemIcon({ className }: { className?: string }) {
 }
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>("system");
-  const [mounted, setMounted] = useState(false);
+  const theme = useStoredTheme();
+  const isClient = useIsClient();
 
   useEffect(() => {
-    setMounted(true);
-    const stored = localStorage.getItem("theme") as Theme | null;
-    if (stored) {
-      setTheme(stored);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
+    if (!isClient) return;
 
     const root = document.documentElement;
 
     if (theme === "system") {
-      localStorage.removeItem("theme");
       const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       root.classList.toggle("dark", systemDark);
       root.classList.toggle("light", !systemDark);
     } else {
-      localStorage.setItem("theme", theme);
       root.classList.toggle("dark", theme === "dark");
       root.classList.toggle("light", theme === "light");
     }
-  }, [theme, mounted]);
+  }, [theme, isClient]);
 
   // Listen for system theme changes
   useEffect(() => {
-    if (!mounted) return;
+    if (!isClient) return;
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handleChange = () => {
@@ -102,17 +150,17 @@ export function ThemeToggle() {
 
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
-  }, [theme, mounted]);
+  }, [theme, isClient]);
 
   const cycleTheme = () => {
     const themes: Theme[] = ["light", "dark", "system"];
     const currentIndex = themes.indexOf(theme);
     const nextIndex = (currentIndex + 1) % themes.length;
-    setTheme(themes[nextIndex] ?? "system");
+    setStoredTheme(themes[nextIndex] ?? "system");
   };
 
   // Prevent hydration mismatch
-  if (!mounted) {
+  if (!isClient) {
     return (
       <button
         className="border-border bg-surface/50 text-muted hover:text-foreground hover:border-accent/40 rounded-lg border p-2 transition-colors"

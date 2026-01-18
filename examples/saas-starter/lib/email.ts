@@ -1,10 +1,20 @@
 import { Resend } from "resend";
 import { env } from "@/env";
 
-export const resend = new Resend(env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+
+function getResend() {
+  if (!_resend) {
+    if (!env.RESEND_API_KEY) {
+      throw new Error("RESEND_API_KEY is not configured");
+    }
+    _resend = new Resend(env.RESEND_API_KEY);
+  }
+  return _resend;
+}
 
 export async function sendWelcomeEmail(email: string, name: string) {
-  await resend.emails.send({
+  await getResend().emails.send({
     from: "onboarding@yourdomain.com",
     to: email,
     subject: "Welcome to Our App!",
@@ -17,7 +27,7 @@ export async function sendWelcomeEmail(email: string, name: string) {
 }
 
 export async function sendSubscriptionEmail(email: string, plan: string) {
-  await resend.emails.send({
+  await getResend().emails.send({
     from: "billing@yourdomain.com",
     to: email,
     subject: `You're now on the ${plan} plan!`,

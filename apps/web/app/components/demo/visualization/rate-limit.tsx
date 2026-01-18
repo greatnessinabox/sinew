@@ -49,7 +49,7 @@ export function RateLimitVisualization({ data }: RateLimitVisualizationProps) {
       <div className="bg-code-bg relative h-32 overflow-hidden rounded-lg">
         {/* Water level */}
         <div
-          className={`absolute bottom-0 left-0 right-0 transition-all duration-300 ${
+          className={`absolute right-0 bottom-0 left-0 transition-all duration-300 ${
             blocked ? "bg-red-500/30" : "bg-accent/30"
           }`}
           style={{ height: `${100 - percentage}%` }}
@@ -71,8 +71,8 @@ export function RateLimitVisualization({ data }: RateLimitVisualizationProps) {
         </div>
 
         {/* Limit line */}
-        <div className="border-muted/30 absolute left-0 right-0 top-0 border-t-2 border-dashed">
-          <span className="bg-code-bg text-muted absolute right-2 top-1 text-xs">
+        <div className="border-muted/30 absolute top-0 right-0 left-0 border-t-2 border-dashed">
+          <span className="bg-code-bg text-muted absolute top-1 right-2 text-xs">
             Limit: {limit}
           </span>
         </div>

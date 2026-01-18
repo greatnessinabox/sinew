@@ -19,7 +19,7 @@ export function FiberPattern({
   density = "normal",
 }: FiberPatternProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const seedRef = useRef(Math.random() * 1000);
+  const seedRef = useRef<number | null>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   // Intersection observer to only animate when visible
@@ -42,12 +42,15 @@ export function FiberPattern({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (seedRef.current === null) {
+      seedRef.current = Math.random() * 1000;
+    }
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const numLines = density === "sparse" ? 6 : density === "dense" ? 16 : 10;
-    const seed = seedRef.current;
+    const seed = seedRef.current ?? 0;
 
     const seededRandom = (n: number) => {
       const x = Math.sin(seed + n) * 10000;

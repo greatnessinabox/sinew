@@ -106,7 +106,7 @@ function ActionButton({
         ref={buttonRef}
         onClick={handleClick}
         disabled={isExecuting}
-        className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 sm:px-4 ${
+        className={`rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-50 sm:px-4 ${
           buttonVariants[action.variant ?? "default"]
         } ${isOpen ? "ring-accent/50 ring-2" : ""}`}
         title={action.description}
@@ -119,7 +119,7 @@ function ActionButton({
         <form
           ref={formRef}
           onSubmit={handleSubmit}
-          className="bg-surface border-border absolute left-0 top-full z-50 mt-2 w-72 rounded-lg border p-4 shadow-xl sm:w-80"
+          className="bg-surface border-border absolute top-full left-0 z-50 mt-2 w-72 rounded-lg border p-4 shadow-xl sm:w-80"
         >
           <div className="space-y-3">
             {action.params?.map((param) => (
@@ -195,7 +195,7 @@ export function ActionPanel({ actions, onExecute, isExecuting }: ActionPanelProp
 
   return (
     <div>
-      <h3 className="text-muted mb-3 text-xs font-semibold uppercase tracking-wider">Actions</h3>
+      <h3 className="text-muted mb-3 text-xs font-semibold tracking-wider uppercase">Actions</h3>
       <div className="flex flex-wrap gap-2">
         {actions.map((action) => (
           <ActionButton

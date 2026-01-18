@@ -64,7 +64,7 @@ export function Header() {
 
   return (
     <header
-      className="border-border/50 bg-background/80 fixed left-0 right-0 top-0 z-50 border-b backdrop-blur-md"
+      className="border-border/50 bg-background/80 fixed top-0 right-0 left-0 z-50 border-b backdrop-blur-md"
       role="banner"
     >
       <nav

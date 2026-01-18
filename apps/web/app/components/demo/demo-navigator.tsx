@@ -34,16 +34,14 @@ export function DemoNavigator({ demos, currentCategory, currentSlug }: DemoNavig
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Group demos by category
-  const groupedDemos = demos.reduce(
-    (acc, demo) => {
-      if (!acc[demo.category]) {
-        acc[demo.category] = [];
-      }
-      acc[demo.category].push(demo);
-      return acc;
-    },
-    {} as Record<string, PatternDemoConfig[]>
-  );
+  const groupedDemos = demos.reduce<Record<string, PatternDemoConfig[]>>((acc, demo) => {
+    const category = demo.category;
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+    acc[category]!.push(demo);
+    return acc;
+  }, {});
 
   // Close on outside click
   useEffect(() => {
@@ -79,11 +77,11 @@ export function DemoNavigator({ demos, currentCategory, currentSlug }: DemoNavig
       </button>
 
       {isOpen && (
-        <div className="border-border bg-surface absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border shadow-xl sm:w-72">
+        <div className="border-border bg-surface absolute top-full right-0 z-50 mt-2 w-64 rounded-lg border shadow-xl sm:w-72">
           <div className="max-h-80 overflow-y-auto p-2">
             {Object.entries(groupedDemos).map(([category, categoryDemos]) => (
               <div key={category} className="mb-2 last:mb-0">
-                <div className="text-muted px-2 py-1.5 text-xs font-semibold uppercase tracking-wider">
+                <div className="text-muted px-2 py-1.5 text-xs font-semibold tracking-wider uppercase">
                   {getCategoryLabel(category)}
                 </div>
                 {categoryDemos.map((demo) => {

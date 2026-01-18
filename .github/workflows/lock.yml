@@ -1,0 +1,35 @@
+name: Lock Closed Issues
+
+on:
+  schedule:
+    - cron: "0 0 * * 0" # Run weekly on Sunday at midnight UTC
+  workflow_dispatch: # Allow manual triggers
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dessant/lock-threads@v5
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # Lock issues after 60 days of being closed
+          issue-inactive-days: 60
+          issue-lock-reason: "resolved"
+          issue-comment: |
+            This issue has been locked because it has been closed for 60 days.
+            Please open a new issue if you have a related question or concern.
+
+          # Lock PRs after 60 days of being closed
+          pr-inactive-days: 60
+          pr-lock-reason: "resolved"
+          pr-comment: |
+            This pull request has been locked because it has been closed for 60 days.
+            Please open a new PR if you'd like to continue this work.
+
+          # Process limits
+          process-only: "issues, prs"

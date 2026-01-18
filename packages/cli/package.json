@@ -1,6 +1,6 @@
 {
-  "name": "sinew",
-  "version": "0.1.0",
+  "name": "@greatnessinabox/sinew",
+  "version": "1.0.0",
   "type": "module",
   "description": "CLI for adding infrastructure patterns to your project",
   "bin": {
@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@sinew/registry": "*",
-    "commander": "^13.0.0",
+    "commander": "^14.0.2",
     "picocolors": "^1.1.1",
     "prompts": "^2.4.2"
   },
@@ -24,7 +24,7 @@
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
     "@types/prompts": "^2.4.9",
-    "typescript": "5.9.2"
+    "typescript": "5.9.3"
   },
   "files": [
     "dist"

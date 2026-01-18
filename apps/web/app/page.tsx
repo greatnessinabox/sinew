@@ -1,16 +1,16 @@
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
+import { FeatureCard, StepCard } from "./components/feature-card";
 import {
-  FiberPattern,
-  FiberPatternStatic,
   FiberAccent,
   FiberCorner,
+  FiberPattern,
+  FiberPatternStatic,
 } from "./components/fiber-pattern";
-import { FeatureCard, StepCard } from "./components/feature-card";
 import { Header } from "./components/header";
 import { TerminalHero } from "./components/terminal-hero";
 import { TestedBadge } from "./components/tested-badge";
-import { getPatternGroups, getTotalPatternCount, getFeaturedPatterns } from "./lib/patterns";
+import { getFeaturedPatterns, getPatternGroups, getTotalPatternCount } from "./lib/patterns";
 
 const patternGroups = getPatternGroups();
 const totalPatterns = getTotalPatternCount();
@@ -102,12 +102,12 @@ export default function Home() {
           </div>
 
           {/* Gradient fade at bottom */}
-          <div className="from-background absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t to-transparent" />
+          <div className="from-background absolute right-0 bottom-0 left-0 h-24 bg-gradient-to-t to-transparent" />
         </section>
 
         {/* Why Sinew */}
         <section className="border-border relative z-10 border-t">
-          <FiberAccent className="absolute left-0 right-0 top-0" />
+          <FiberAccent className="absolute top-0 right-0 left-0" />
           <div className="mx-auto max-w-6xl px-6 py-20">
             <div className="mb-12 text-center">
               <h2 className="text-3xl font-bold">Why Sinew?</h2>
@@ -252,7 +252,7 @@ export default function Home() {
                   className="border-border bg-surface/50 hover:border-accent/40 hover:bg-surface/80 group relative rounded-xl border p-6 transition-all duration-300"
                 >
                   {/* Fiber accent lines */}
-                  <div className="via-accent/60 absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                  <div className="via-accent/60 absolute top-0 right-0 left-0 h-px bg-gradient-to-r from-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                   <div className="to-accent/40 absolute -top-4 left-1/4 h-4 w-px bg-gradient-to-b from-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                   <div className="to-accent/30 absolute -top-4 right-1/3 h-4 w-px bg-gradient-to-b from-transparent opacity-0 transition-opacity delay-75 group-hover:opacity-100" />
 
@@ -427,7 +427,7 @@ function FeaturedPatternCard({
       href={`/patterns/${category}/${slug}`}
       className="border-border bg-surface/50 hover:border-accent/40 hover:bg-surface group relative rounded-xl border p-5 transition-all"
     >
-      <div className="absolute right-4 top-4">
+      <div className="absolute top-4 right-4">
         <span className="bg-accent block h-2 w-2 rounded-full" />
       </div>
       <h3 className="text-foreground group-hover:text-accent font-semibold transition-colors">
