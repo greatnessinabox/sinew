@@ -38,6 +38,7 @@ jobs:
             ui
             config
             deps
+            ci
           # Disallow WIP in title
           disallowScopes: |
             wip
