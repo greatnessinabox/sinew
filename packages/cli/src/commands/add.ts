@@ -82,9 +82,28 @@ export async function add(patternArg?: string) {
   // Show what will be added
   console.log(pc.dim("  Files to add:"));
   for (const file of files) {
-    const targetPath = file.path.startsWith(".")
-      ? file.path
-      : path.join(config.paths.lib, file.path);
+    let targetPath: string;
+    if (file.path.startsWith(".")) {
+      // Dot files/directories stay at root (.env.example, .github/, etc.)
+      targetPath = file.path;
+    } else if (file.path.startsWith("lib/")) {
+      // Replace "lib/" prefix with configured lib path
+      targetPath = file.path.replace(/^lib\//, config.paths.lib + "/");
+    } else if (
+      // Root-level config files and framework directories stay at root
+      !file.path.includes("/") || // Root-level files (Dockerfile, vercel.json, etc.)
+      file.path.startsWith("app/") || // Next.js app directory
+      file.path.startsWith("e2e/") || // E2E tests
+      file.path.startsWith("tests/") || // Test directory
+      file.path.startsWith("prisma/") || // Prisma directory
+      file.path.startsWith("emails/") || // Email templates
+      file.path.match(/^[^/]+\.config\.(ts|js|mjs)$/) // Config files at root
+    ) {
+      targetPath = file.path;
+    } else {
+      // Other files go in lib directory
+      targetPath = path.join(config.paths.lib, file.path);
+    }
     console.log(pc.dim(`    ${targetPath}`));
   }
 
@@ -116,9 +135,29 @@ export async function add(patternArg?: string) {
 
   // Write files
   for (const file of files) {
-    const targetPath = file.path.startsWith(".")
-      ? path.join(process.cwd(), file.path)
-      : path.join(process.cwd(), config.paths.lib, file.path);
+    let targetPath: string;
+    if (file.path.startsWith(".")) {
+      // Dot files/directories stay at root
+      targetPath = path.join(process.cwd(), file.path);
+    } else if (file.path.startsWith("lib/")) {
+      // Replace "lib/" prefix with configured lib path
+      const adjustedPath = file.path.replace(/^lib\//, config.paths.lib + "/");
+      targetPath = path.join(process.cwd(), adjustedPath);
+    } else if (
+      // Root-level config files and framework directories stay at root
+      !file.path.includes("/") || // Root-level files (Dockerfile, vercel.json, etc.)
+      file.path.startsWith("app/") || // Next.js app directory
+      file.path.startsWith("e2e/") || // E2E tests
+      file.path.startsWith("tests/") || // Test directory
+      file.path.startsWith("prisma/") || // Prisma directory
+      file.path.startsWith("emails/") || // Email templates
+      file.path.match(/^[^/]+\.config\.(ts|js|mjs)$/) // Config files at root
+    ) {
+      targetPath = path.join(process.cwd(), file.path);
+    } else {
+      // Other files go in lib directory
+      targetPath = path.join(process.cwd(), config.paths.lib, file.path);
+    }
 
     // Create directory if needed
     const dir = path.dirname(targetPath);
