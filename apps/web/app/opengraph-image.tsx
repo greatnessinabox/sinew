@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
 
-export const alt = "Sinew - Infrastructure Patterns for Developers";
+export const alt = "Sinew - Copy-Paste Infrastructure Patterns for Developers";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -191,31 +191,58 @@ export default async function Image() {
         {/* Headline */}
         <div
           style={{
-            fontSize: "64px",
+            display: "flex",
+            flexDirection: "column",
+            fontSize: "72px",
             fontWeight: 700,
             color: "#e8e8e8",
-            lineHeight: 1.15,
+            lineHeight: 1.1,
             letterSpacing: "-0.03em",
             margin: 0,
             maxWidth: "1000px",
           }}
         >
-          <div>The connective tissue</div>
-          <div style={{ color: "#e85a2c", marginTop: "8px" }}>that makes apps work.</div>
+          <div>Copy-Paste Infrastructure</div>
+          <div style={{ color: "#e85a2c", marginTop: "12px" }}>Patterns That Work</div>
         </div>
 
         {/* Subtitle */}
         <p
           style={{
-            fontSize: "24px",
-            color: "#808080",
-            marginTop: "24px",
-            maxWidth: "700px",
-            lineHeight: 1.5,
+            fontSize: "26px",
+            color: "#a0a0a0",
+            marginTop: "28px",
+            maxWidth: "750px",
+            lineHeight: 1.4,
+            fontWeight: 500,
           }}
         >
-          Infrastructure patterns for databases, auth, deployment, and more. Copy. Paste. Ship.
+          Production-ready code for databases, auth, deployment, and more. Copy. Paste. Ship.
         </p>
+
+        {/* CTA Button */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            marginTop: "36px",
+            gap: "12px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#e85a2c",
+              color: "#0a0a0a",
+              padding: "16px 32px",
+              borderRadius: "8px",
+              fontSize: "22px",
+              fontWeight: 700,
+              letterSpacing: "-0.01em",
+            }}
+          >
+            Browse Patterns →
+          </div>
+        </div>
       </div>
 
       {/* Accent line at bottom */}
