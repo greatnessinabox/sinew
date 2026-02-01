@@ -36,11 +36,11 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add bun.lockb
-          if git diff --cached --quiet bun.lockb; then
+          git add bun.lock
+          if git diff --cached --quiet bun.lock; then
             echo "No lockfile changes"
           else
-            git commit -m "chore(deps): regenerate bun.lockb"
+            git commit -m "chore(deps): regenerate bun.lock"
             git push
           fi
 
