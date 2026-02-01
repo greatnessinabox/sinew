@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "prisma generate",
     "build": "SKIP_ENV_VALIDATION=true next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
