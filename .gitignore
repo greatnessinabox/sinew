@@ -27,6 +27,9 @@ out/
 build
 dist
 
+# Generated Prisma Client
+**/generated/prisma
+
 
 
 # Debug
