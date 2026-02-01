@@ -14,6 +14,10 @@ on:
     - cron: "0 0 * * 0" # Weekly on Sunday
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   check-links:
     runs-on: ubuntu-latest
@@ -34,6 +38,7 @@ jobs:
             --exclude "your-"
             --exclude "placeholder"
             --exclude "mailto:"
+            --exclude "npmjs.com"
             "**/*.md"
             "**/*.mdx"
           fail: true

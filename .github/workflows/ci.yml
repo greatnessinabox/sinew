@@ -85,6 +85,24 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Generate Prisma clients
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+        run: |
+          echo "::group::Generate apps/example Prisma client"
+          cd apps/example && bunx prisma generate --generator client && cd ../..
+          echo "::endgroup::"
+
+          echo "::group::Generate examples/saas-starter Prisma client"
+          cd examples/saas-starter && bunx prisma generate --generator client && cd ../..
+          echo "::endgroup::"
+
+          echo "::group::Generate examples/with-prisma Prisma client"
+          cd examples/with-prisma && bunx prisma generate --generator client && cd ../..
+          echo "::endgroup::"
+
+          echo "✅ All Prisma clients generated successfully"
+
       - name: Build all packages
         run: bun run build
 

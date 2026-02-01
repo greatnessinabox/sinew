@@ -18,6 +18,32 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Regenerate lockfile
+        run: bun install
+
+      - name: Commit updated lockfile
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet bun.lockb; then
+            echo "No lockfile changes"
+          else
+            git add bun.lockb
+            git commit -m "chore(deps): regenerate bun.lockb"
+            git push
+          fi
+
       - name: Auto-merge patch and minor updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
         run: gh pr merge --auto --squash "$PR_URL"

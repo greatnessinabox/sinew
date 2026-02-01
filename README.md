@@ -59,7 +59,7 @@ Or just browse [sinew.marquis.codes](https://sinew.marquis.codes) and copy the c
 | Pattern                                                                   | Description                                          |
 | ------------------------------------------------------------------------- | ---------------------------------------------------- |
 | [Rate Limiting](https://sinew.marquis.codes/patterns/api/rate-limiting)   | Sliding window rate limiting with in-memory or Redis |
-| [Validation](https://sinew.marquis.codes/patterns/api/validation)         | Type-safe request/response validation with Zod       |
+| [Validation](https://sinew.marquis.codes/patterns/api/api-validation)     | Type-safe request/response validation with Zod       |
 | [Error Handling](https://sinew.marquis.codes/patterns/api/error-handling) | Custom error classes and structured responses        |
 
 ### Caching
