@@ -1,0 +1,236 @@
+# Internationalization
+
+Type-safe i18n with server components.
+
+## The Problem
+
+Adding multi-language support requires:
+
+- Locale detection and routing
+- Server component support
+- Type-safe message formatting
+- Date, number, and currency formatting
+
+## The Solution
+
+Use next-intl for type-safe internationalization with server component support. Includes locale configuration, message files, middleware for routing, and formatting utilities.
+
+## Files
+
+```typescript title="lib/i18n/config.ts"
+// Supported locales
+export const locales = ["en", "es", "fr", "de", "ja"] as const;
+export type Locale = (typeof locales)[number];
+
+// Default locale
+export const defaultLocale: Locale = "en";
+
+// Locale metadata
+export const localeNames: Record<Locale, string> = {
+  en: "English",
+  es: "Español",
+  fr: "Français",
+  de: "Deutsch",
+  ja: "日本語",
+};
+
+// Currency formats
+export const currencyFormats: Record<Locale, { currency: string; locale: string }> = {
+  en: { currency: "USD", locale: "en-US" },
+  es: { currency: "EUR", locale: "es-ES" },
+  fr: { currency: "EUR", locale: "fr-FR" },
+  de: { currency: "EUR", locale: "de-DE" },
+  ja: { currency: "JPY", locale: "ja-JP" },
+};
+```
+
+```typescript title="lib/i18n/request.ts"
+import { getRequestConfig } from "next-intl/server";
+import { locales, type Locale } from "./config";
+
+export default getRequestConfig(async ({ requestLocale }) => {
+  let locale = await requestLocale;
+
+  if (!locale || !locales.includes(locale as Locale)) {
+    locale = "en";
+  }
+
+  return {
+    locale,
+    messages: (await import(`@/messages/${locale}.json`)).default,
+  };
+});
+```
+
+```typescript title="middleware.ts"
+import createMiddleware from "next-intl/middleware";
+import { locales, defaultLocale } from "@/lib/i18n/config";
+
+export default createMiddleware({
+  locales,
+  defaultLocale,
+  localePrefix: "as-needed",
+});
+
+export const config = {
+  matcher: ["/((?!api|_next|_vercel|.*\\..*).*)"],
+};
+```
+
+```json title="messages/en.json"
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "signUp": "Sign up"
+  },
+  "greeting": {
+    "hello": "Hello, {name}!",
+    "welcome": "Welcome back, {name}"
+  },
+  "errors": {
+    "required": "{field} is required",
+    "notFound": "Page not found"
+  }
+}
+```
+
+```tsx title="components/locale-switcher.tsx"
+"use client";
+
+import { useLocale } from "next-intl";
+import { useRouter, usePathname } from "next/navigation";
+import { locales, localeNames, type Locale } from "@/lib/i18n/config";
+
+export function LocaleSwitcher() {
+  const locale = useLocale();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const handleChange = (newLocale: Locale) => {
+    const segments = pathname.split("/");
+    if (locales.includes(segments[1] as Locale)) {
+      segments[1] = newLocale;
+    } else {
+      segments.splice(1, 0, newLocale);
+    }
+    router.push(segments.join("/"));
+  };
+
+  return (
+    <select
+      value={locale}
+      onChange={(e) => handleChange(e.target.value as Locale)}
+      className="rounded-lg border px-4 py-2"
+    >
+      {locales.map((loc) => (
+        <option key={loc} value={loc}>
+          {localeNames[loc]}
+        </option>
+      ))}
+    </select>
+  );
+}
+```
+
+```typescript title="hooks/use-formatted.ts"
+"use client";
+
+import { useFormatter, useLocale } from "next-intl";
+import { currencyFormats, type Locale } from "@/lib/i18n/config";
+
+export function useFormatted() {
+  const format = useFormatter();
+  const locale = useLocale() as Locale;
+
+  return {
+    date: (date: Date | number, options?: Intl.DateTimeFormatOptions) =>
+      format.dateTime(date, options),
+    relative: (date: Date | number) => format.relativeTime(date),
+    number: (value: number, options?: Intl.NumberFormatOptions) => format.number(value, options),
+    currency: (value: number) => {
+      const { currency, locale: currencyLocale } = currencyFormats[locale];
+      return new Intl.NumberFormat(currencyLocale, { style: "currency", currency }).format(value);
+    },
+    percent: (value: number) =>
+      format.number(value, { style: "percent", maximumFractionDigits: 1 }),
+  };
+}
+```
+
+## Configuration
+
+### Next.js Config
+
+```typescript title="next.config.ts"
+import createNextIntlPlugin from "next-intl/plugin";
+
+const withNextIntl = createNextIntlPlugin("./lib/i18n/request.ts");
+
+export default withNextIntl({
+  // Your existing Next.js config
+});
+```
+
+## Usage
+
+### Use Translations in Server Components
+
+```tsx
+import { useTranslations } from "next-intl";
+
+export default function Page() {
+  const t = useTranslations("common");
+
+  return <h1>{t("loading")}</h1>;
+}
+```
+
+### Use Translations with Parameters
+
+```tsx
+import { useTranslations } from "next-intl";
+
+export function Greeting({ name }: { name: string }) {
+  const t = useTranslations("greeting");
+
+  return <p>{t("hello", { name })}</p>;
+}
+```
+
+### Format Dates and Currency
+
+```tsx
+"use client";
+
+import { useFormatted } from "@/hooks/use-formatted";
+
+export function ProductPrice({ price, date }) {
+  const format = useFormatted();
+
+  return (
+    <div>
+      <span>{format.currency(price)}</span>
+      <span>{format.date(date)}</span>
+    </div>
+  );
+}
+```
+
+## File Structure
+
+```
+messages/
+├── en.json    # English
+├── es.json    # Spanish
+├── fr.json    # French
+├── de.json    # German
+└── ja.json    # Japanese
+```

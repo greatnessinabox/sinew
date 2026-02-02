@@ -1,0 +1,270 @@
+# Content Moderation
+
+AI-powered moderation for user-generated content.
+
+## The Problem
+
+User-generated content needs moderation for:
+
+- Harmful content detection
+- Policy enforcement
+- Batch content processing
+- Configurable severity levels
+
+## The Solution
+
+Use OpenAI's free moderation API for text content analysis. Includes policy definitions for different content types, middleware for automatic checking, and a React hook for client-side validation.
+
+## Files
+
+```typescript title="lib/moderation/text.ts"
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export interface ModerationCategories {
+  sexual: boolean;
+  hate: boolean;
+  harassment: boolean;
+  "self-harm": boolean;
+  violence: boolean;
+  "sexual/minors": boolean;
+  "hate/threatening": boolean;
+  "violence/graphic": boolean;
+}
+
+export interface ModerationResult {
+  flagged: boolean;
+  categories: ModerationCategories;
+  categoryScores: Record<keyof ModerationCategories, number>;
+}
+
+// Moderate text content using OpenAI
+export async function moderateText(text: string): Promise<ModerationResult> {
+  const response = await openai.moderations.create({ input: text });
+  const result = response.results[0];
+
+  return {
+    flagged: result.flagged,
+    categories: result.categories as ModerationCategories,
+    categoryScores: result.category_scores as Record<keyof ModerationCategories, number>,
+  };
+}
+
+// Check if content is safe
+export async function isSafe(text: string): Promise<boolean> {
+  const result = await moderateText(text);
+  return !result.flagged;
+}
+
+// Get detailed violation info
+export async function getViolations(text: string): Promise<{ category: string; score: number }[]> {
+  const result = await moderateText(text);
+  if (!result.flagged) return [];
+
+  return Object.entries(result.categories)
+    .filter(([, flagged]) => flagged)
+    .map(([category]) => ({
+      category,
+      score: result.categoryScores[category as keyof ModerationCategories],
+    }))
+    .sort((a, b) => b.score - a.score);
+}
+```
+
+```typescript title="lib/moderation/policies.ts"
+import type { ModerationCategories } from "./text";
+
+export interface ModerationPolicy {
+  name: string;
+  blockedCategories: Partial<Record<keyof ModerationCategories, boolean>>;
+  thresholds?: Partial<Record<keyof ModerationCategories, number>>;
+  action: "block" | "review" | "warn";
+}
+
+export const policies: Record<string, ModerationPolicy> = {
+  // Strict policy for public content
+  strict: {
+    name: "Strict",
+    blockedCategories: {
+      sexual: true,
+      hate: true,
+      harassment: true,
+      "self-harm": true,
+      violence: true,
+    },
+    action: "block",
+  },
+
+  // Moderate policy for community content
+  moderate: {
+    name: "Moderate",
+    blockedCategories: {
+      "sexual/minors": true,
+      "hate/threatening": true,
+      "violence/graphic": true,
+    },
+    thresholds: {
+      sexual: 0.8,
+      hate: 0.7,
+      harassment: 0.7,
+    },
+    action: "review",
+  },
+
+  // Permissive policy for mature platforms
+  permissive: {
+    name: "Permissive",
+    blockedCategories: {
+      "sexual/minors": true,
+    },
+    action: "warn",
+  },
+};
+
+export function checkPolicy(
+  policy: ModerationPolicy,
+  categories: ModerationCategories,
+  scores: Record<keyof ModerationCategories, number>
+): { passed: boolean; violations: string[]; action: string } {
+  const violations: string[] = [];
+
+  for (const [category, blocked] of Object.entries(policy.blockedCategories)) {
+    if (blocked && categories[category as keyof ModerationCategories]) {
+      violations.push(category);
+    }
+  }
+
+  if (policy.thresholds) {
+    for (const [category, threshold] of Object.entries(policy.thresholds)) {
+      if (scores[category as keyof ModerationCategories] >= threshold) {
+        if (!violations.includes(category)) violations.push(category);
+      }
+    }
+  }
+
+  return { passed: violations.length === 0, violations, action: policy.action };
+}
+```
+
+```typescript title="app/api/moderate/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { moderateText } from "@/lib/moderation/text";
+import { policies, checkPolicy } from "@/lib/moderation/policies";
+
+export async function POST(req: NextRequest) {
+  const { text, policy: policyName = "moderate" } = await req.json();
+
+  if (!text || typeof text !== "string") {
+    return NextResponse.json({ error: "Text is required" }, { status: 400 });
+  }
+
+  const result = await moderateText(text);
+  const policy = policies[policyName] || policies.moderate;
+  const policyResult = checkPolicy(policy, result.categories, result.categoryScores);
+
+  return NextResponse.json({
+    flagged: result.flagged,
+    passed: policyResult.passed,
+    action: policyResult.action,
+    violations: policyResult.violations,
+    scores: result.categoryScores,
+  });
+}
+```
+
+```typescript title="hooks/use-moderation.ts"
+"use client";
+
+import { useState, useCallback } from "react";
+
+export function useModeration(policy = "moderate") {
+  const [isChecking, setIsChecking] = useState(false);
+  const [result, setResult] = useState<{
+    passed: boolean;
+    violations: string[];
+  } | null>(null);
+
+  const checkContent = useCallback(
+    async (text: string) => {
+      setIsChecking(true);
+      try {
+        const response = await fetch("/api/moderate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, policy }),
+        });
+        const data = await response.json();
+        setResult(data);
+        return data;
+      } finally {
+        setIsChecking(false);
+      }
+    },
+    [policy]
+  );
+
+  return { isChecking, result, checkContent };
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable         | Description    | Required |
+| ---------------- | -------------- | -------- |
+| `OPENAI_API_KEY` | OpenAI API key | Yes      |
+
+**Note:** The OpenAI moderation endpoint is free to use.
+
+## Usage
+
+### Check Content Before Submission
+
+```tsx
+"use client";
+
+import { useModeration } from "@/hooks/use-moderation";
+
+export function CommentForm() {
+  const { isChecking, checkContent } = useModeration("strict");
+
+  const handleSubmit = async (text: string) => {
+    const result = await checkContent(text);
+
+    if (!result.passed) {
+      alert(`Content blocked: ${result.violations.join(", ")}`);
+      return;
+    }
+
+    // Submit the content
+    await submitComment(text);
+  };
+
+  return <form onSubmit={handleSubmit}>...</form>;
+}
+```
+
+### Server-Side Moderation
+
+```typescript
+import { isSafe, getViolations } from "@/lib/moderation/text";
+
+export async function createPost(content: string) {
+  if (!(await isSafe(content))) {
+    const violations = await getViolations(content);
+    throw new Error(`Content violates policy: ${violations[0].category}`);
+  }
+
+  return db.post.create({ data: { content } });
+}
+```
+
+## Alternatives
+
+- **OpenAI Moderation** - Free, good accuracy
+- **Perspective API** - Google's toxicity detection
+- **AWS Rekognition** - Image/video moderation

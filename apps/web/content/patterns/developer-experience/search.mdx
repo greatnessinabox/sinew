@@ -1,0 +1,219 @@
+# Search
+
+Full-text search with typo tolerance.
+
+## The Problem
+
+Adding search to your app requires:
+
+- Fast full-text search with typo tolerance
+- Filtering and faceted navigation
+- Search highlighting
+- Proper indexing strategy
+
+## The Solution
+
+Use Meilisearch for typo-tolerant full-text search with filters, facets, and highlighting. Includes indexing utilities, a React hook for debounced search, and a search box component.
+
+## Files
+
+```typescript title="lib/search/client.ts"
+import { MeiliSearch, Index } from "meilisearch";
+
+const client = new MeiliSearch({
+  host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
+  apiKey: process.env.MEILISEARCH_API_KEY,
+});
+
+export const INDEXES = {
+  products: "products",
+  articles: "articles",
+  users: "users",
+} as const;
+
+export type IndexName = (typeof INDEXES)[keyof typeof INDEXES];
+
+export function getIndex<T extends Record<string, unknown>>(name: IndexName): Index<T> {
+  return client.index<T>(name);
+}
+
+export interface SearchOptions {
+  limit?: number;
+  offset?: number;
+  filter?: string | string[];
+  sort?: string[];
+  facets?: string[];
+  attributesToHighlight?: string[];
+}
+
+export async function search<T extends Record<string, unknown>>(
+  index: IndexName,
+  query: string,
+  options: SearchOptions = {}
+) {
+  const results = await getIndex<T>(index).search(query, {
+    limit: options.limit ?? 20,
+    offset: options.offset ?? 0,
+    filter: options.filter,
+    sort: options.sort,
+    facets: options.facets,
+    attributesToHighlight: options.attributesToHighlight,
+    highlightPreTag: "<mark>",
+    highlightPostTag: "</mark>",
+  });
+
+  return {
+    hits: results.hits,
+    query: results.query,
+    processingTimeMs: results.processingTimeMs,
+    estimatedTotalHits: results.estimatedTotalHits ?? results.hits.length,
+    facetDistribution: results.facetDistribution,
+  };
+}
+```
+
+```typescript title="lib/search/indexing.ts"
+import { getClient, getIndex, INDEXES, type IndexName } from "./client";
+
+const indexSettings: Record<IndexName, object> = {
+  products: {
+    searchableAttributes: ["name", "description", "category", "brand"],
+    filterableAttributes: ["category", "brand", "price", "inStock"],
+    sortableAttributes: ["price", "createdAt", "rating"],
+  },
+  articles: {
+    searchableAttributes: ["title", "content", "author", "tags"],
+    filterableAttributes: ["author", "tags", "publishedAt", "category"],
+    sortableAttributes: ["publishedAt", "views"],
+  },
+  users: {
+    searchableAttributes: ["name", "email", "bio"],
+    filterableAttributes: ["role", "createdAt"],
+    sortableAttributes: ["createdAt", "name"],
+  },
+};
+
+export async function initializeIndex(name: IndexName): Promise<void> {
+  const client = getClient();
+  await client.createIndex(name, { primaryKey: "id" });
+  const index = getIndex(name);
+  await index.updateSettings(indexSettings[name]);
+}
+
+export async function addDocuments<T extends { id: string }>(
+  index: IndexName,
+  documents: T[]
+): Promise<void> {
+  const idx = getIndex<T>(index);
+  await idx.addDocuments(documents);
+}
+```
+
+```typescript title="hooks/use-search.ts"
+"use client";
+
+import { useState, useCallback, useEffect, useRef } from "react";
+
+export function useSearch<T extends Record<string, unknown>>(
+  index: string,
+  options: { debounceMs?: number } = {}
+) {
+  const { debounceMs = 300 } = options;
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ hits: T[] } | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const performSearch = useCallback(
+    async (searchQuery: string) => {
+      if (!searchQuery.trim()) {
+        setResults(null);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index, query: searchQuery }),
+        });
+        const data = await response.json();
+        setResults(data);
+      } catch (error) {
+        console.error("Search failed:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [index]
+  );
+
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => performSearch(query), debounceMs);
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [query, debounceMs, performSearch]);
+
+  return { query, setQuery, results, isLoading };
+}
+```
+
+```typescript title="app/api/search/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { search, type IndexName, INDEXES } from "@/lib/search/client";
+
+export async function POST(req: NextRequest) {
+  const { index, query, ...options } = await req.json();
+
+  if (!Object.values(INDEXES).includes(index as IndexName)) {
+    return NextResponse.json({ error: "Invalid index" }, { status: 400 });
+  }
+
+  const results = await search(index as IndexName, query, options);
+  return NextResponse.json(results);
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable              | Description             | Required |
+| --------------------- | ----------------------- | -------- |
+| `MEILISEARCH_HOST`    | Meilisearch server URL  | Yes      |
+| `MEILISEARCH_API_KEY` | Master or admin API key | Yes      |
+
+## Usage
+
+### Index Documents
+
+```typescript
+import { addDocuments } from "@/lib/search/indexing";
+
+await addDocuments("products", [
+  { id: "1", name: "Widget", category: "Tools", price: 29.99 },
+  { id: "2", name: "Gadget", category: "Electronics", price: 49.99 },
+]);
+```
+
+### Search with Filters
+
+```typescript
+import { search } from "@/lib/search/client";
+
+const results = await search("products", "widget", {
+  filter: "category = Tools AND price < 50",
+  sort: ["price:asc"],
+  facets: ["category", "brand"],
+});
+```
+
+## Alternatives
+
+- **Algolia** - Industry-leading search-as-a-service
+- **Meilisearch** - Open-source, easy to self-host
+- **Typesense** - Open-source Algolia alternative
+- **Orama** - Runs client-side in the browser
