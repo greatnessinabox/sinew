@@ -1,0 +1,153 @@
+# Audit Logging
+
+Structured audit trail for compliance and debugging with immutable logs.
+
+## The Problem
+
+Your application needs a reliable audit trail for:
+
+- Compliance requirements (SOC2, HIPAA, GDPR)
+- Security incident investigation
+- User activity tracking
+- Change history for sensitive data
+
+## The Solution
+
+Use structured logging with Pino to create an immutable audit trail that captures who did what, when, and to which resources.
+
+## Files
+
+```typescript title="lib/audit/types.ts"
+export type AuditAction =
+  | "create"
+  | "read"
+  | "update"
+  | "delete"
+  | "login"
+  | "logout"
+  | "permission_change";
+
+export interface AuditActor {
+  id: string;
+  type: "user" | "system" | "api_key";
+  email?: string;
+  ipAddress?: string;
+}
+
+export interface AuditResource {
+  type: string;
+  id: string;
+  name?: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  timestamp: Date;
+  action: AuditAction;
+  status: "success" | "failure";
+  actor: AuditActor;
+  resource: AuditResource;
+  changes?: {
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+  };
+}
+```
+
+```typescript title="lib/audit/logger.ts"
+import pino from "pino";
+import { randomUUID } from "crypto";
+import type { AuditEvent, AuditActor, AuditResource } from "./types";
+
+const logger = pino({
+  name: "audit",
+  level: "info",
+  formatters: {
+    level: (label) => ({ level: label }),
+  },
+  timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
+});
+
+export async function audit(input: {
+  action: AuditEvent["action"];
+  status?: AuditEvent["status"];
+  actor: Partial<AuditActor> & { id: string };
+  resource: AuditResource;
+  changes?: AuditEvent["changes"];
+}): Promise<AuditEvent> {
+  const event: AuditEvent = {
+    id: randomUUID(),
+    timestamp: new Date(),
+    action: input.action,
+    status: input.status ?? "success",
+    actor: { id: input.actor.id, type: input.actor.type ?? "user", ...input.actor },
+    resource: input.resource,
+    changes: input.changes,
+  };
+
+  logger.info(
+    {
+      auditId: event.id,
+      action: event.action,
+      actorId: event.actor.id,
+      resourceType: event.resource.type,
+      resourceId: event.resource.id,
+    },
+    `${event.action}:${event.resource.type}:${event.resource.id}`
+  );
+
+  // TODO: Persist to database in production
+  return event;
+}
+```
+
+## Usage
+
+### Log a User Action
+
+```typescript
+import { audit } from "@/lib/audit/logger";
+
+await audit({
+  action: "update",
+  actor: { id: userId, email: user.email },
+  resource: { type: "user", id: targetUserId },
+  changes: {
+    before: { role: "member" },
+    after: { role: "admin" },
+  },
+});
+```
+
+### Query Audit Trail
+
+```typescript
+const { events } = await queryAuditEvents({
+  resourceType: "user",
+  resourceId: userId,
+  limit: 50,
+});
+```
+
+## Configuration
+
+For production, persist audit events to a database:
+
+```prisma title="prisma/schema.prisma"
+model AuditEvent {
+  id           String   @id @default(cuid())
+  timestamp    DateTime @default(now())
+  action       String
+  status       String
+  actorId      String
+  actorType    String
+  resourceType String
+  resourceId   String
+  metadata     Json?
+  changes      Json?
+
+  @@index([actorId])
+  @@index([resourceType, resourceId])
+  @@index([timestamp])
+}
+```
