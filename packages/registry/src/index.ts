@@ -35,6 +35,15 @@ export { stripePayments, lemonsqueezy, usageBilling } from "./patterns/payments/
 // Monitoring patterns
 export { sentryMonitoring, opentelemetry, logging } from "./patterns/monitoring/index.js";
 
+// AI patterns
+export {
+  aiChat,
+  aiEmbeddings,
+  aiToolCalling,
+  aiRateLimits,
+  aiStreamingUi,
+} from "./patterns/ai/index.js";
+
 import { connectionPooling, prismaEdge, drizzleConfig } from "./patterns/database/index.js";
 import { oauthSetup, sessions, rbac } from "./patterns/auth/index.js";
 import { typeSafeEnv, secrets } from "./patterns/environment/index.js";
@@ -50,6 +59,13 @@ import { redisCache, nextjsCache, inMemoryCache } from "./patterns/caching/index
 import { resendEmail, nodemailer, awsSes } from "./patterns/email/index.js";
 import { stripePayments, lemonsqueezy, usageBilling } from "./patterns/payments/index.js";
 import { sentryMonitoring, opentelemetry, logging } from "./patterns/monitoring/index.js";
+import {
+  aiChat,
+  aiEmbeddings,
+  aiToolCalling,
+  aiRateLimits,
+  aiStreamingUi,
+} from "./patterns/ai/index.js";
 import type { Pattern } from "./schema.js";
 
 export const patterns: Pattern[] = [
@@ -93,6 +109,12 @@ export const patterns: Pattern[] = [
   sentryMonitoring,
   opentelemetry,
   logging,
+  // AI
+  aiChat,
+  aiEmbeddings,
+  aiToolCalling,
+  aiRateLimits,
+  aiStreamingUi,
 ];
 
 export function getPattern(category: string, slug: string): Pattern | undefined {
