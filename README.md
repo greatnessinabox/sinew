@@ -36,7 +36,7 @@ Or just browse [sinew.marquis.codes](https://sinew.marquis.codes) and copy the c
 
 ## Available Patterns
 
-**30 production-ready patterns across 10 categories**
+**50+ production-ready patterns across 14 categories**
 
 ### Database
 
@@ -118,6 +118,46 @@ Or just browse [sinew.marquis.codes](https://sinew.marquis.codes) and copy the c
 | [GitHub Actions](https://sinew.marquis.codes/patterns/deployment/github-actions) | CI/CD pipelines for testing and deploying               |
 | [Vercel](https://sinew.marquis.codes/patterns/deployment/vercel)                 | Vercel deployment with edge functions and optimizations |
 
+### AI & LLM
+
+| Pattern                                                                    | Description                                   |
+| -------------------------------------------------------------------------- | --------------------------------------------- |
+| [AI Chat](https://sinew.marquis.codes/patterns/ai/ai-chat)                 | Streaming chat with Vercel AI SDK             |
+| [AI Embeddings](https://sinew.marquis.codes/patterns/ai/ai-embeddings)     | Vector embeddings for RAG with Upstash Vector |
+| [AI Tool Calling](https://sinew.marquis.codes/patterns/ai/ai-tool-calling) | Function/tool calling with schema validation  |
+| [AI Rate Limits](https://sinew.marquis.codes/patterns/ai/ai-rate-limits)   | Token-aware rate limiting and cost tracking   |
+| [AI Streaming UI](https://sinew.marquis.codes/patterns/ai/ai-streaming-ui) | React components for streaming AI responses   |
+
+### Infrastructure
+
+| Pattern                                                                                | Description                                   |
+| -------------------------------------------------------------------------------------- | --------------------------------------------- |
+| [File Uploads](https://sinew.marquis.codes/patterns/infrastructure/file-uploads)       | Presigned URL uploads with S3 and Vercel Blob |
+| [Background Jobs](https://sinew.marquis.codes/patterns/infrastructure/background-jobs) | Serverless job queues with Inngest            |
+| [Scheduled Tasks](https://sinew.marquis.codes/patterns/infrastructure/scheduled-tasks) | Cron jobs with Inngest and Vercel cron        |
+| [Webhooks](https://sinew.marquis.codes/patterns/infrastructure/webhooks)               | Webhook receiving with signature verification |
+| [Realtime](https://sinew.marquis.codes/patterns/infrastructure/realtime)               | Pub/sub real-time updates with Pusher         |
+
+### Developer Experience
+
+| Pattern                                                                                            | Description                                      |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [Feature Flags](https://sinew.marquis.codes/patterns/developer-experience/feature-flags)           | Feature toggles with gradual rollouts            |
+| [Analytics](https://sinew.marquis.codes/patterns/developer-experience/analytics)                   | Privacy-friendly analytics with PostHog          |
+| [Search](https://sinew.marquis.codes/patterns/developer-experience/search)                         | Full-text search with Meilisearch                |
+| [i18n](https://sinew.marquis.codes/patterns/developer-experience/i18n)                             | Internationalization with next-intl              |
+| [Content Moderation](https://sinew.marquis.codes/patterns/developer-experience/content-moderation) | Text/image moderation for user-generated content |
+
+### Security & Compliance
+
+| Pattern                                                                          | Description                          |
+| -------------------------------------------------------------------------------- | ------------------------------------ |
+| [Audit Logging](https://sinew.marquis.codes/patterns/security/audit-logging)     | Immutable audit trail for compliance |
+| [Data Encryption](https://sinew.marquis.codes/patterns/security/data-encryption) | Field-level encryption for PII       |
+| [CSRF Protection](https://sinew.marquis.codes/patterns/security/csrf-protection) | CSRF token handling for mutations    |
+| [CORS Config](https://sinew.marquis.codes/patterns/security/cors-config)         | Proper CORS setup for API routes     |
+| [MFA](https://sinew.marquis.codes/patterns/security/mfa)                         | Multi-factor auth with TOTP          |
+
 ## Interactive Demos
 
 Try patterns live at [sinew.marquis.codes/demo](https://sinew.marquis.codes/demo):
@@ -128,6 +168,7 @@ Try patterns live at [sinew.marquis.codes/demo](https://sinew.marquis.codes/demo
 - **Error Handling** — Trigger different error types and see responses
 - **Logging** — See structured logs stream with automatic redaction
 - **Sessions** — Create, revoke, and manage user sessions
+- **Feature Flags** — Toggle flags and test gradual rollouts
 
 ## CLI Usage
 
