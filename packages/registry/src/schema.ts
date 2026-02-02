@@ -21,7 +21,11 @@ export type Category =
   | "caching"
   | "email"
   | "payments"
-  | "monitoring";
+  | "monitoring"
+  | "ai"
+  | "infrastructure"
+  | "developer-experience"
+  | "security";
 
 export type PricingTier = "free" | "freemium" | "paid" | "enterprise";
 

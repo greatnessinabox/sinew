@@ -1,0 +1,265 @@
+# AI Streaming UI
+
+React components for streaming AI responses.
+
+## The Problem
+
+AI chat interfaces need:
+
+- Real-time streaming text display
+- Typing indicators while loading
+- Auto-scrolling message lists
+- Accessible input handling
+
+## The Solution
+
+Pre-built React components using the Vercel AI SDK's `useChat` hook. Includes streaming text, message lists, and chat input components.
+
+## Files
+
+```tsx title="components/ai/streaming-text.tsx"
+"use client";
+
+import { useEffect, useRef } from "react";
+
+interface StreamingTextProps {
+  text: string;
+  isStreaming?: boolean;
+  className?: string;
+}
+
+export function StreamingText({ text, isStreaming = false, className = "" }: StreamingTextProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isStreaming && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [text, isStreaming]);
+
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      <p className="whitespace-pre-wrap">{text}</p>
+      {isStreaming && <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-current" />}
+    </div>
+  );
+}
+```
+
+```tsx title="components/ai/chat-messages.tsx"
+"use client";
+
+import { useRef, useEffect } from "react";
+import type { Message } from "ai";
+import { StreamingText } from "./streaming-text";
+
+interface ChatMessagesProps {
+  messages: Message[];
+  isLoading?: boolean;
+}
+
+export function ChatMessages({ messages, isLoading = false }: ChatMessagesProps) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  return (
+    <div className="flex flex-col space-y-4 overflow-y-auto p-4">
+      {messages.map((message, index) => {
+        const isUser = message.role === "user";
+        const isLastAssistant = !isUser && index === messages.length - 1 && isLoading;
+
+        return (
+          <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+            <div
+              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                isUser ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"
+              }`}
+            >
+              {isLastAssistant ? (
+                <StreamingText text={message.content} isStreaming={true} />
+              ) : (
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {isLoading && messages[messages.length - 1]?.role === "user" && (
+        <div className="flex justify-start">
+          <div className="rounded-2xl bg-gray-100 px-4 py-3">
+            <TypingIndicator />
+          </div>
+        </div>
+      )}
+
+      <div ref={messagesEndRef} />
+    </div>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <div className="flex space-x-1">
+      <div
+        className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+        style={{ animationDelay: "0ms" }}
+      />
+      <div
+        className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+        style={{ animationDelay: "150ms" }}
+      />
+      <div
+        className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+        style={{ animationDelay: "300ms" }}
+      />
+    </div>
+  );
+}
+```
+
+```tsx title="components/ai/chat-input.tsx"
+"use client";
+
+import { useRef, useEffect, KeyboardEvent } from "react";
+
+interface ChatInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  isLoading?: boolean;
+  placeholder?: string;
+}
+
+export function ChatInput({
+  value,
+  onChange,
+  onSubmit,
+  isLoading = false,
+  placeholder = "Type a message...",
+}: ChatInputProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }
+  }, [value]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (value.trim() && !isLoading) onSubmit();
+    }
+  };
+
+  return (
+    <div className="flex items-end gap-2 border-t p-4">
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        disabled={isLoading}
+        rows={1}
+        className="flex-1 resize-none rounded-2xl border px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+      <button
+        onClick={onSubmit}
+        disabled={isLoading || !value.trim()}
+        className="rounded-2xl bg-blue-600 px-4 py-3 text-white disabled:opacity-50"
+      >
+        Send
+      </button>
+    </div>
+  );
+}
+```
+
+```typescript title="hooks/use-ai-chat.ts"
+"use client";
+
+import { useChat as useVercelChat } from "ai/react";
+import { useCallback, useMemo } from "react";
+
+export function useAIChat({
+  apiEndpoint = "/api/chat",
+  sessionId,
+  systemPrompt,
+}: {
+  apiEndpoint?: string;
+  sessionId?: string;
+  systemPrompt?: string;
+} = {}) {
+  const chat = useVercelChat({
+    api: apiEndpoint,
+    body: { sessionId, systemPrompt },
+  });
+
+  const clearChat = useCallback(() => {
+    chat.setMessages([]);
+  }, [chat]);
+
+  const isEmpty = useMemo(() => chat.messages.length === 0, [chat.messages.length]);
+
+  return { ...chat, clearChat, isEmpty };
+}
+```
+
+## Usage
+
+### Complete Chat Interface
+
+```tsx
+"use client";
+
+import { useAIChat } from "@/hooks/use-ai-chat";
+import { ChatMessages } from "@/components/ai/chat-messages";
+import { ChatInput } from "@/components/ai/chat-input";
+
+export function ChatContainer({ sessionId }: { sessionId: string }) {
+  const { messages, input, setInput, handleSubmit, isLoading, clearChat } = useAIChat({
+    sessionId,
+  });
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex justify-between border-b p-4">
+        <h2>Chat</h2>
+        <button onClick={clearChat}>Clear</button>
+      </div>
+      <ChatMessages messages={messages} isLoading={isLoading} />
+      <ChatInput
+        value={input}
+        onChange={setInput}
+        onSubmit={() => handleSubmit()}
+        isLoading={isLoading}
+      />
+    </div>
+  );
+}
+```
+
+### Standalone Streaming Text
+
+```tsx
+import { StreamingText } from "@/components/ai/streaming-text";
+
+<StreamingText text={streamingContent} isStreaming={isGenerating} />;
+```
+
+### Custom Styling
+
+```tsx
+<ChatMessages messages={messages} isLoading={isLoading} className="rounded-lg bg-gray-50" />
+```
+
+## Customization
+
+All components accept a `className` prop for custom styling. The components use Tailwind CSS classes but can be adapted to any styling solution.

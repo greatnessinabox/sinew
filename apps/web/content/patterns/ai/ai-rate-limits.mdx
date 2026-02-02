@@ -1,0 +1,220 @@
+# AI Rate Limits
+
+Token-aware rate limiting for AI endpoints.
+
+## The Problem
+
+AI endpoints need specialized rate limiting:
+
+- Token-based quotas (not just request counts)
+- Per-user daily limits
+- Cost tracking and analytics
+- Tier-based access control
+
+## The Solution
+
+Use Upstash Redis for token bucket rate limiting with usage tracking. Includes middleware for automatic rate limit checking and cost calculation.
+
+## Files
+
+```typescript title="lib/ai/rate-limits.ts"
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+const redis = Redis.fromEnv();
+
+export const tierLimits = {
+  free: {
+    tokensPerDay: 10_000,
+    requestsPerMinute: 10,
+    maxTokensPerRequest: 4_000,
+  },
+  pro: {
+    tokensPerDay: 100_000,
+    requestsPerMinute: 60,
+    maxTokensPerRequest: 8_000,
+  },
+  enterprise: {
+    tokensPerDay: 1_000_000,
+    requestsPerMinute: 200,
+    maxTokensPerRequest: 32_000,
+  },
+} as const;
+
+export type Tier = keyof typeof tierLimits;
+
+export async function checkRequestLimit(userId: string, tier: Tier = "free") {
+  const limit = tierLimits[tier].requestsPerMinute;
+
+  const limiter = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(limit, "1 m"),
+    prefix: `ai:requests:${tier}`,
+  });
+
+  const result = await limiter.limit(userId);
+  return {
+    success: result.success,
+    remaining: result.remaining,
+    reset: result.reset,
+  };
+}
+
+export async function checkTokenLimit(
+  userId: string,
+  requestedTokens: number,
+  tier: Tier = "free"
+) {
+  const key = `ai:tokens:${userId}`;
+  const dailyLimit = tierLimits[tier].tokensPerDay;
+  const usage = (await redis.get<number>(key)) ?? 0;
+  const remaining = dailyLimit - usage;
+
+  if (requestedTokens > remaining) {
+    const ttl = await redis.ttl(key);
+    return {
+      success: false,
+      remainingTokens: remaining,
+      resetAt: Date.now() + (ttl > 0 ? ttl * 1000 : 86400000),
+    };
+  }
+
+  const newUsage = await redis.incrby(key, requestedTokens);
+  if (newUsage === requestedTokens) {
+    await redis.expire(key, 86400);
+  }
+
+  return {
+    success: true,
+    remainingTokens: dailyLimit - newUsage,
+    resetAt: Date.now() + (await redis.ttl(key)) * 1000,
+  };
+}
+```
+
+```typescript title="lib/ai/usage-tracking.ts"
+import { Redis } from "@upstash/redis";
+
+const redis = Redis.fromEnv();
+
+export const modelPricing = {
+  "gpt-4o": { input: 0.0025, output: 0.01 },
+  "gpt-4o-mini": { input: 0.00015, output: 0.0006 },
+  "claude-sonnet-4-20250514": { input: 0.003, output: 0.015 },
+  "claude-3-5-haiku-20241022": { input: 0.0008, output: 0.004 },
+} as const;
+
+export function calculateCost(
+  model: keyof typeof modelPricing,
+  inputTokens: number,
+  outputTokens: number
+): number {
+  const pricing = modelPricing[model];
+  return (inputTokens / 1000) * pricing.input + (outputTokens / 1000) * pricing.output;
+}
+
+export async function recordUsage(
+  userId: string,
+  record: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cost: number;
+  }
+) {
+  const day = new Date().toISOString().split("T")[0];
+  const key = `usage:daily:${userId}:${day}`;
+
+  await redis.hincrby(key, "totalTokens", record.inputTokens + record.outputTokens);
+  await redis.hincrbyfloat(key, "totalCost", record.cost);
+  await redis.hincrby(key, "requests", 1);
+  await redis.expire(key, 60 * 60 * 24 * 30);
+}
+```
+
+```typescript title="lib/middleware/ai-rate-limit.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { checkRequestLimit, checkTokenLimit, type Tier } from "@/lib/ai/rate-limits";
+
+export function withAIRateLimit(
+  handler: (req: NextRequest) => Promise<Response>,
+  options: {
+    getUserId: (req: NextRequest) => string | null;
+    getUserTier?: (req: NextRequest) => Tier;
+  }
+) {
+  return async (req: NextRequest): Promise<Response> => {
+    const userId = options.getUserId(req);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const tier = options.getUserTier?.(req) ?? "free";
+
+    const requestCheck = await checkRequestLimit(userId, tier);
+    if (!requestCheck.success) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": Math.ceil((requestCheck.reset - Date.now()) / 1000).toString(),
+          },
+        }
+      );
+    }
+
+    const tokenCheck = await checkTokenLimit(userId, 1000, tier);
+    if (!tokenCheck.success) {
+      return NextResponse.json({ error: "Daily token limit exceeded" }, { status: 429 });
+    }
+
+    return handler(req);
+  };
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                   | Description         | Required |
+| -------------------------- | ------------------- | -------- |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis URL   | Yes      |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis token | Yes      |
+
+## Usage
+
+### Apply Rate Limiting
+
+```typescript
+import { withAIRateLimit } from "@/lib/middleware/ai-rate-limit";
+
+async function chatHandler(req: NextRequest) {
+  // Your chat logic
+}
+
+export const POST = withAIRateLimit(chatHandler, {
+  getUserId: (req) => req.headers.get("x-user-id"),
+  getUserTier: (req) => (req.headers.get("x-user-tier") as Tier) ?? "free",
+});
+```
+
+### Track Usage
+
+```typescript
+import { recordUsage, calculateCost } from "@/lib/ai/usage-tracking";
+
+const cost = calculateCost("gpt-4o", inputTokens, outputTokens);
+await recordUsage(userId, { model: "gpt-4o", inputTokens, outputTokens, cost });
+```
+
+### Get Usage Stats
+
+```typescript
+import { getDailySummary } from "@/lib/ai/usage-tracking";
+
+const today = new Date().toISOString().split("T")[0];
+const stats = await getDailySummary(userId, today);
+// { totalTokens: 5000, totalCost: 0.15, requests: 25 }
+```

@@ -1,0 +1,193 @@
+# AI Chat
+
+Production-ready AI chat with streaming responses and provider abstraction.
+
+## The Problem
+
+Building AI chat interfaces requires handling:
+
+- Streaming responses for real-time UX
+- Conversation history management
+- Provider abstraction for flexibility
+- Session persistence across page reloads
+
+## The Solution
+
+Use the Vercel AI SDK with provider abstraction supporting OpenAI and Anthropic. Persist conversation history in Upstash Redis for serverless compatibility.
+
+## Files
+
+```typescript title="lib/ai/providers.ts"
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+
+export type AIProvider = "openai" | "anthropic";
+
+const openai = createOpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+const anthropic = createAnthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+export const models = {
+  openai: {
+    default: openai("gpt-4o"),
+    fast: openai("gpt-4o-mini"),
+    reasoning: openai("o1-preview"),
+  },
+  anthropic: {
+    default: anthropic("claude-sonnet-4-20250514"),
+    fast: anthropic("claude-3-5-haiku-20241022"),
+    reasoning: anthropic("claude-sonnet-4-20250514"),
+  },
+} as const;
+
+export type ModelType = "default" | "fast" | "reasoning";
+
+export function getProvider(): AIProvider {
+  const provider = process.env.AI_PROVIDER as AIProvider;
+  if (provider === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+    return "anthropic";
+  }
+  return "openai";
+}
+
+export function getModel(type: ModelType = "default") {
+  const provider = getProvider();
+  return models[provider][type];
+}
+```
+
+```typescript title="lib/ai/chat.ts"
+import { streamText, CoreMessage } from "ai";
+import { Redis } from "@upstash/redis";
+import { getModel, type ModelType } from "./providers";
+
+const redis = Redis.fromEnv();
+
+export async function streamChat({
+  sessionId,
+  message,
+  systemPrompt,
+  modelType = "default",
+}: {
+  sessionId: string;
+  message: string;
+  systemPrompt?: string;
+  modelType?: ModelType;
+}) {
+  const messages = await getMessages(sessionId);
+  const userMessage: CoreMessage = { role: "user", content: message };
+  messages.push(userMessage);
+
+  const model = getModel(modelType);
+
+  const result = streamText({
+    model,
+    system: systemPrompt ?? "You are a helpful assistant.",
+    messages,
+    onFinish: async ({ text }) => {
+      messages.push({ role: "assistant", content: text });
+      await saveMessages(sessionId, messages);
+    },
+  });
+
+  return result;
+}
+
+async function getMessages(sessionId: string): Promise<CoreMessage[]> {
+  const data = await redis.get<string>(`chat:${sessionId}`);
+  return data ? JSON.parse(data) : [];
+}
+
+async function saveMessages(sessionId: string, messages: CoreMessage[]) {
+  await redis.set(`chat:${sessionId}`, JSON.stringify(messages));
+  await redis.expire(`chat:${sessionId}`, 60 * 60 * 24);
+}
+```
+
+```typescript title="app/api/chat/route.ts"
+import { NextRequest } from "next/server";
+import { streamChat } from "@/lib/ai/chat";
+
+export const runtime = "edge";
+
+export async function POST(req: NextRequest) {
+  const { message, sessionId, systemPrompt } = await req.json();
+
+  if (!message || !sessionId) {
+    return Response.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  const result = await streamChat({ sessionId, message, systemPrompt });
+  return result.toDataStreamResponse();
+}
+```
+
+```tsx title="components/chat-ui.tsx"
+"use client";
+
+import { useChat } from "ai/react";
+
+export function ChatUI({ sessionId }: { sessionId: string }) {
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+    api: "/api/chat",
+    body: { sessionId },
+  });
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {messages.map((message) => (
+          <div key={message.id} className={message.role === "user" ? "text-right" : "text-left"}>
+            <p className="inline-block rounded-lg bg-gray-100 px-4 py-2">{message.content}</p>
+          </div>
+        ))}
+      </div>
+      <form onSubmit={handleSubmit} className="border-t p-4">
+        <input
+          value={input}
+          onChange={handleInputChange}
+          disabled={isLoading}
+          className="w-full rounded-lg border px-4 py-2"
+          placeholder="Type a message..."
+        />
+      </form>
+    </div>
+  );
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                   | Description             | Required                 |
+| -------------------------- | ----------------------- | ------------------------ |
+| `AI_PROVIDER`              | "openai" or "anthropic" | No (defaults to openai)  |
+| `OPENAI_API_KEY`           | OpenAI API key          | Yes (if using OpenAI)    |
+| `ANTHROPIC_API_KEY`        | Anthropic API key       | Yes (if using Anthropic) |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis URL       | Yes                      |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis token     | Yes                      |
+
+## Usage
+
+```tsx
+import { ChatUI } from "@/components/chat-ui";
+
+export default function ChatPage() {
+  return (
+    <div className="h-screen">
+      <ChatUI sessionId="user-123-session-1" />
+    </div>
+  );
+}
+```
+
+## Alternatives
+
+- **LangChain** - Extensive ecosystem with built-in memory patterns
+- **LlamaIndex** - Excellent for RAG applications
+- **Amazon Bedrock** - Multiple model providers with AWS integration
