@@ -8,6 +8,7 @@ export const availableDemos = new Set([
   "monitoring/logging",
   "environment/type-safe-env",
   "auth/sessions",
+  "developer-experience/feature-flags",
 ]);
 
 export function hasDemoAvailable(category: string, slug: string): boolean {

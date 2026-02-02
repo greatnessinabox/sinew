@@ -1,7 +1,14 @@
 // Sandbox implementations of external services for demos
 // These run entirely in-memory with no external dependencies
 
-import type { CacheEntry, CacheStats, LogEntry, RateLimitData } from "./types";
+import type {
+  CacheEntry,
+  CacheStats,
+  LogEntry,
+  RateLimitData,
+  FeatureFlag,
+  FlagEvaluation,
+} from "./types";
 
 // ============================================================================
 // In-Memory LRU Cache
@@ -603,5 +610,221 @@ export const sandboxEnv = {
       error,
       isSecret,
     };
+  },
+};
+
+// ============================================================================
+// Feature Flags Demo
+// ============================================================================
+
+interface FeatureFlagsStore {
+  flags: Map<string, FeatureFlag>;
+  evaluations: FlagEvaluation[];
+  currentUser: string;
+}
+
+const featureFlagsStores = new Map<string, FeatureFlagsStore>();
+
+function getFeatureFlagsStore(sessionId: string): FeatureFlagsStore {
+  let store = featureFlagsStores.get(sessionId);
+  if (!store) {
+    const now = Date.now();
+    store = {
+      flags: new Map([
+        [
+          "dark-mode",
+          {
+            key: "dark-mode",
+            name: "Dark Mode",
+            description: "Enable dark theme for all users",
+            enabled: true,
+            rolloutPercentage: 100,
+            targetedUsers: [],
+            createdAt: now - 86400000 * 7,
+            updatedAt: now - 86400000,
+          },
+        ],
+        [
+          "new-dashboard",
+          {
+            key: "new-dashboard",
+            name: "New Dashboard",
+            description: "Redesigned dashboard with analytics",
+            enabled: true,
+            rolloutPercentage: 50,
+            targetedUsers: ["user_beta1", "user_beta2"],
+            createdAt: now - 86400000 * 3,
+            updatedAt: now - 3600000,
+          },
+        ],
+        [
+          "ai-assistant",
+          {
+            key: "ai-assistant",
+            name: "AI Assistant",
+            description: "AI-powered writing assistant",
+            enabled: true,
+            rolloutPercentage: 10,
+            targetedUsers: ["user_vip"],
+            createdAt: now - 86400000,
+            updatedAt: now - 1800000,
+          },
+        ],
+        [
+          "beta-api",
+          {
+            key: "beta-api",
+            name: "Beta API v2",
+            description: "New API endpoints (testing)",
+            enabled: false,
+            rolloutPercentage: 0,
+            targetedUsers: [],
+            createdAt: now - 3600000,
+            updatedAt: now - 1800000,
+          },
+        ],
+      ]),
+      evaluations: [],
+      currentUser: "user_" + Math.random().toString(36).slice(2, 8),
+    };
+    featureFlagsStores.set(sessionId, store);
+  }
+  return store;
+}
+
+function hashUserToPercentage(userId: string, flagKey: string): number {
+  // Simple hash function for deterministic rollout
+  let hash = 0;
+  const str = `${userId}:${flagKey}`;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash) % 100;
+}
+
+export const sandboxFeatureFlags = {
+  checkFlag(
+    sessionId: string,
+    flagKey: string,
+    userId?: string
+  ): { enabled: boolean; reason: FlagEvaluation["reason"]; flag: FeatureFlag | null } {
+    const store = getFeatureFlagsStore(sessionId);
+    const effectiveUserId = userId || store.currentUser;
+    const flag = store.flags.get(flagKey);
+
+    if (!flag) {
+      return { enabled: false, reason: "default", flag: null };
+    }
+
+    if (!flag.enabled) {
+      const evaluation: FlagEvaluation = {
+        userId: effectiveUserId,
+        flagKey,
+        enabled: false,
+        reason: "disabled",
+        timestamp: Date.now(),
+      };
+      store.evaluations.unshift(evaluation);
+      if (store.evaluations.length > 50) store.evaluations.pop();
+      return { enabled: false, reason: "disabled", flag };
+    }
+
+    // Check if user is targeted
+    if (flag.targetedUsers.includes(effectiveUserId)) {
+      const evaluation: FlagEvaluation = {
+        userId: effectiveUserId,
+        flagKey,
+        enabled: true,
+        reason: "targeted",
+        timestamp: Date.now(),
+      };
+      store.evaluations.unshift(evaluation);
+      if (store.evaluations.length > 50) store.evaluations.pop();
+      return { enabled: true, reason: "targeted", flag };
+    }
+
+    // Check rollout percentage
+    const userPercentage = hashUserToPercentage(effectiveUserId, flagKey);
+    const enabled = userPercentage < flag.rolloutPercentage;
+
+    const evaluation: FlagEvaluation = {
+      userId: effectiveUserId,
+      flagKey,
+      enabled,
+      reason: enabled ? "rollout" : "default",
+      timestamp: Date.now(),
+    };
+    store.evaluations.unshift(evaluation);
+    if (store.evaluations.length > 50) store.evaluations.pop();
+
+    return { enabled, reason: enabled ? "rollout" : "default", flag };
+  },
+
+  toggleFlag(sessionId: string, flagKey: string): FeatureFlag | null {
+    const store = getFeatureFlagsStore(sessionId);
+    const flag = store.flags.get(flagKey);
+    if (!flag) return null;
+
+    flag.enabled = !flag.enabled;
+    flag.updatedAt = Date.now();
+    return flag;
+  },
+
+  setRollout(sessionId: string, flagKey: string, percentage: number): FeatureFlag | null {
+    const store = getFeatureFlagsStore(sessionId);
+    const flag = store.flags.get(flagKey);
+    if (!flag) return null;
+
+    flag.rolloutPercentage = Math.max(0, Math.min(100, percentage));
+    flag.updatedAt = Date.now();
+    return flag;
+  },
+
+  targetUser(sessionId: string, flagKey: string, userId: string): FeatureFlag | null {
+    const store = getFeatureFlagsStore(sessionId);
+    const flag = store.flags.get(flagKey);
+    if (!flag) return null;
+
+    if (!flag.targetedUsers.includes(userId)) {
+      flag.targetedUsers.push(userId);
+      flag.updatedAt = Date.now();
+    }
+    return flag;
+  },
+
+  removeTarget(sessionId: string, flagKey: string, userId: string): FeatureFlag | null {
+    const store = getFeatureFlagsStore(sessionId);
+    const flag = store.flags.get(flagKey);
+    if (!flag) return null;
+
+    flag.targetedUsers = flag.targetedUsers.filter((u) => u !== userId);
+    flag.updatedAt = Date.now();
+    return flag;
+  },
+
+  setCurrentUser(sessionId: string, userId: string): void {
+    const store = getFeatureFlagsStore(sessionId);
+    store.currentUser = userId;
+  },
+
+  getVisualizationData(sessionId: string) {
+    const store = getFeatureFlagsStore(sessionId);
+    const flags = Array.from(store.flags.values());
+    return {
+      flags,
+      evaluations: store.evaluations.slice(0, 20),
+      currentUser: store.currentUser,
+      stats: {
+        totalFlags: flags.length,
+        enabledFlags: flags.filter((f) => f.enabled).length,
+        evaluationsCount: store.evaluations.length,
+      },
+    };
+  },
+
+  reset(sessionId: string): void {
+    featureFlagsStores.delete(sessionId);
   },
 };

@@ -5,6 +5,7 @@ import type {
   EnvValidationData,
   ErrorVisualizationData,
   ExecutionStep,
+  FeatureFlagsVisualizationData,
   LogEntry,
   LogStreamData,
   PatternDemoConfig,
@@ -20,6 +21,7 @@ import { StepExplainer } from "./step-explainer";
 import { CacheStateVisualization } from "./visualization/cache-state";
 import { EnvValidationVisualization } from "./visualization/env-validation";
 import { ErrorStackVisualization } from "./visualization/error-stack";
+import { FlagStateVisualization } from "./visualization/flag-state";
 import { LogStreamVisualization } from "./visualization/log-stream";
 import { RateLimitVisualization } from "./visualization/rate-limit";
 import { SessionListVisualization } from "./visualization/session-list";
@@ -30,6 +32,7 @@ type VisualizationData =
   | RateLimitData
   | ErrorVisualizationData
   | EnvValidationData
+  | FeatureFlagsVisualizationData
   | SessionVisualizationData
   | LogStreamData
   | ValidationResult
@@ -320,6 +323,8 @@ export function Playground({ demo }: PlaygroundProps) {
         return <EnvValidationVisualization data={visualizationData as EnvValidationData} />;
       case "session-list":
         return <SessionListVisualization data={visualizationData as SessionVisualizationData} />;
+      case "flag-state":
+        return <FlagStateVisualization data={visualizationData as FeatureFlagsVisualizationData} />;
       case "log-stream":
         return <LogStreamVisualization data={visualizationData as LogStreamData} />;
       case "validation-tree":

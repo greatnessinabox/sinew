@@ -49,7 +49,8 @@ export type VisualizationType =
   | "log-stream"
   | "error-stack"
   | "env-validation"
-  | "session-list";
+  | "session-list"
+  | "flag-state";
 
 export interface Visualization {
   type: VisualizationType;
@@ -189,4 +190,40 @@ export interface SessionEntry {
   expiresAt: number;
   lastActivity: number;
   isCurrent: boolean;
+}
+
+// Feature flags types
+export interface FeatureFlag {
+  key: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  rolloutPercentage: number;
+  targetedUsers: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FlagEvaluation {
+  userId: string;
+  flagKey: string;
+  enabled: boolean;
+  reason: "targeted" | "rollout" | "default" | "disabled";
+  timestamp: number;
+}
+
+export interface FeatureFlagsVisualizationData {
+  flags: FeatureFlag[];
+  evaluations: FlagEvaluation[];
+  currentUser: string;
+  stats: {
+    totalFlags: number;
+    enabledFlags: number;
+    evaluationsCount: number;
+  };
+  lastAction?: {
+    type: "check" | "toggle" | "rollout" | "target";
+    flagKey: string;
+    result?: boolean;
+  };
 }

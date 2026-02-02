@@ -10,6 +10,7 @@ import type {
   EnvValidationData,
   SessionVisualizationData,
   LogStreamData,
+  FeatureFlagsVisualizationData,
 } from "@/app/lib/demo/types";
 import {
   sandboxCache,
@@ -17,6 +18,7 @@ import {
   touchSession,
   sandboxSessions,
   sandboxEnv,
+  sandboxFeatureFlags,
 } from "@/app/lib/demo/sandbox-services";
 import { getDemoConfig } from "@/app/lib/demo/pattern-configs";
 
@@ -180,6 +182,10 @@ async function executePatternAction(
 
   if (category === "auth" && slug === "sessions") {
     return executeSessionsAction(action, params, sessionId, demoSteps, logs, addLog, startTime);
+  }
+
+  if (category === "developer-experience" && slug === "feature-flags") {
+    return executeFeatureFlagsAction(action, params, sessionId, demoSteps, logs, addLog, startTime);
   }
 
   return {
@@ -1179,6 +1185,309 @@ function executeSessionsAction(
         })),
         duration: Date.now() - startTime,
         visualizationData: data as SessionVisualizationData,
+      };
+    }
+
+    default:
+      return {
+        success: false,
+        error: `Unknown action: ${action}`,
+        logs,
+        steps: [],
+        duration: Date.now() - startTime,
+      };
+  }
+}
+
+// Feature flags demo actions
+function executeFeatureFlagsAction(
+  action: string,
+  params: Record<string, unknown>,
+  sessionId: string,
+  demoSteps: ExecutionStep[],
+  logs: LogEntry[],
+  addLog: (
+    level: LogEntry["level"],
+    message: string,
+    data?: Record<string, unknown>,
+    source?: string
+  ) => void,
+  startTime: number
+): ExecuteResponse {
+  switch (action) {
+    case "check-flag": {
+      const flagKey = String(params.flagKey || "");
+      if (!flagKey) {
+        return {
+          success: false,
+          error: "Flag key is required",
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog("info", `Checking flag: ${flagKey}`, undefined, "flags");
+      const result = sandboxFeatureFlags.checkFlag(sessionId, flagKey);
+
+      if (!result.flag) {
+        addLog("warn", `Flag not found: ${flagKey}`, undefined, "flags");
+      } else {
+        addLog(
+          result.enabled ? "info" : "debug",
+          `Flag ${flagKey}: ${result.enabled ? "ENABLED" : "DISABLED"}`,
+          { reason: result.reason },
+          "flags"
+        );
+      }
+
+      const visualizationData: FeatureFlagsVisualizationData = {
+        ...sandboxFeatureFlags.getVisualizationData(sessionId),
+        lastAction: { type: "check", flagKey, result: result.enabled },
+      };
+
+      return {
+        success: true,
+        result: { flagKey, enabled: result.enabled, reason: result.reason },
+        logs,
+        steps: demoSteps.map((s, i) => ({
+          ...s,
+          status: i < 2 ? "completed" : ("pending" as const),
+        })),
+        duration: Date.now() - startTime,
+        visualizationData,
+      };
+    }
+
+    case "check-as-user": {
+      const flagKey = String(params.flagKey || "");
+      const userId = String(params.userId || "");
+
+      if (!flagKey || !userId) {
+        return {
+          success: false,
+          error: "Flag key and user ID are required",
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog("info", `Checking flag ${flagKey} for user ${userId}`, undefined, "flags");
+      const result = sandboxFeatureFlags.checkFlag(sessionId, flagKey, userId);
+
+      addLog(
+        result.enabled ? "info" : "debug",
+        `Flag ${flagKey} for ${userId}: ${result.enabled ? "ENABLED" : "DISABLED"}`,
+        { reason: result.reason },
+        "flags"
+      );
+
+      const visualizationData: FeatureFlagsVisualizationData = {
+        ...sandboxFeatureFlags.getVisualizationData(sessionId),
+        lastAction: { type: "check", flagKey, result: result.enabled },
+      };
+
+      return {
+        success: true,
+        result: { flagKey, userId, enabled: result.enabled, reason: result.reason },
+        logs,
+        steps: demoSteps.map((s, i) => ({
+          ...s,
+          status: i < 2 ? "completed" : ("pending" as const),
+        })),
+        duration: Date.now() - startTime,
+        visualizationData,
+      };
+    }
+
+    case "toggle-flag": {
+      const flagKey = String(params.flagKey || "");
+      if (!flagKey) {
+        return {
+          success: false,
+          error: "Flag key is required",
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog("info", `Toggling flag: ${flagKey}`, undefined, "flags");
+      const flag = sandboxFeatureFlags.toggleFlag(sessionId, flagKey);
+
+      if (!flag) {
+        addLog("error", `Flag not found: ${flagKey}`, undefined, "flags");
+        return {
+          success: false,
+          error: `Flag not found: ${flagKey}`,
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog(
+        "info",
+        `Flag ${flagKey} is now ${flag.enabled ? "ENABLED" : "DISABLED"}`,
+        undefined,
+        "flags"
+      );
+
+      const visualizationData: FeatureFlagsVisualizationData = {
+        ...sandboxFeatureFlags.getVisualizationData(sessionId),
+        lastAction: { type: "toggle", flagKey, result: flag.enabled },
+      };
+
+      return {
+        success: true,
+        result: { flagKey, enabled: flag.enabled },
+        logs,
+        steps: demoSteps.map((s, i) => ({
+          ...s,
+          status: i < 2 ? "completed" : ("pending" as const),
+        })),
+        duration: Date.now() - startTime,
+        visualizationData,
+      };
+    }
+
+    case "set-rollout": {
+      const flagKey = String(params.flagKey || "");
+      const percentage = Number(params.percentage ?? 50);
+
+      if (!flagKey) {
+        return {
+          success: false,
+          error: "Flag key is required",
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog("info", `Setting rollout for ${flagKey} to ${percentage}%`, undefined, "flags");
+      const flag = sandboxFeatureFlags.setRollout(sessionId, flagKey, percentage);
+
+      if (!flag) {
+        addLog("error", `Flag not found: ${flagKey}`, undefined, "flags");
+        return {
+          success: false,
+          error: `Flag not found: ${flagKey}`,
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog(
+        "info",
+        `Rollout updated: ${flag.rolloutPercentage}% of users will see ${flagKey}`,
+        undefined,
+        "flags"
+      );
+
+      const visualizationData: FeatureFlagsVisualizationData = {
+        ...sandboxFeatureFlags.getVisualizationData(sessionId),
+        lastAction: { type: "rollout", flagKey },
+      };
+
+      return {
+        success: true,
+        result: { flagKey, rolloutPercentage: flag.rolloutPercentage },
+        logs,
+        steps: demoSteps.map((s, i) => ({
+          ...s,
+          status: i < 3 ? "completed" : ("pending" as const),
+        })),
+        duration: Date.now() - startTime,
+        visualizationData,
+      };
+    }
+
+    case "target-user": {
+      const flagKey = String(params.flagKey || "");
+      const userId = String(params.userId || "");
+
+      if (!flagKey || !userId) {
+        return {
+          success: false,
+          error: "Flag key and user ID are required",
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog("info", `Adding ${userId} to targeted users for ${flagKey}`, undefined, "flags");
+      const flag = sandboxFeatureFlags.targetUser(sessionId, flagKey, userId);
+
+      if (!flag) {
+        addLog("error", `Flag not found: ${flagKey}`, undefined, "flags");
+        return {
+          success: false,
+          error: `Flag not found: ${flagKey}`,
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog(
+        "info",
+        `User ${userId} added to ${flagKey} targets`,
+        { targets: flag.targetedUsers },
+        "flags"
+      );
+
+      const visualizationData: FeatureFlagsVisualizationData = {
+        ...sandboxFeatureFlags.getVisualizationData(sessionId),
+        lastAction: { type: "target", flagKey },
+      };
+
+      return {
+        success: true,
+        result: { flagKey, targetedUsers: flag.targetedUsers },
+        logs,
+        steps: demoSteps.map((s, i) => ({
+          ...s,
+          status: i < 2 ? "completed" : ("pending" as const),
+        })),
+        duration: Date.now() - startTime,
+        visualizationData,
+      };
+    }
+
+    case "switch-user": {
+      const userId = String(params.userId || "");
+      if (!userId) {
+        return {
+          success: false,
+          error: "User ID is required",
+          logs,
+          steps: [],
+          duration: Date.now() - startTime,
+        };
+      }
+
+      addLog("info", `Switching current user to: ${userId}`, undefined, "flags");
+      sandboxFeatureFlags.setCurrentUser(sessionId, userId);
+      addLog("info", `User context updated`, { userId }, "flags");
+
+      const visualizationData: FeatureFlagsVisualizationData = {
+        ...sandboxFeatureFlags.getVisualizationData(sessionId),
+      };
+
+      return {
+        success: true,
+        result: { userId },
+        logs,
+        steps: demoSteps.map((s, i) => ({
+          ...s,
+          status: i < 1 ? "completed" : ("pending" as const),
+        })),
+        duration: Date.now() - startTime,
+        visualizationData,
       };
     }
 

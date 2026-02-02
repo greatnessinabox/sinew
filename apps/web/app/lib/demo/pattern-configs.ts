@@ -1208,6 +1208,284 @@ export async function revokeAllSessions(userId: string) {
 `,
 };
 
+export const featureFlagsDemo: PatternDemoConfig = {
+  slug: "feature-flags",
+  category: "developer-experience",
+  title: "Feature Flags with Rollouts",
+  description:
+    "Control feature rollouts with gradual percentage-based releases and user targeting. See how flags evaluate in real-time based on user context.",
+  requiredServices: [],
+  codeFile: "lib/flags/config.ts",
+  actions: [
+    {
+      id: "check-flag",
+      label: "Check Flag",
+      description: "Evaluate if a feature is enabled for the current user",
+      handler: "flags.check",
+      params: [
+        {
+          name: "flagKey",
+          type: "string",
+          label: "Flag Key",
+          placeholder: "new-dashboard",
+          required: true,
+        },
+      ],
+    },
+    {
+      id: "check-as-user",
+      label: "Check as User",
+      description: "Check flag for a specific user ID",
+      handler: "flags.checkAsUser",
+      params: [
+        {
+          name: "flagKey",
+          type: "string",
+          label: "Flag Key",
+          placeholder: "ai-assistant",
+          required: true,
+        },
+        {
+          name: "userId",
+          type: "string",
+          label: "User ID",
+          placeholder: "user_beta1",
+          required: true,
+        },
+      ],
+    },
+    {
+      id: "toggle-flag",
+      label: "Toggle Flag",
+      description: "Enable or disable a feature flag",
+      handler: "flags.toggle",
+      variant: "secondary",
+      params: [
+        {
+          name: "flagKey",
+          type: "string",
+          label: "Flag Key",
+          placeholder: "beta-api",
+          required: true,
+        },
+      ],
+    },
+    {
+      id: "set-rollout",
+      label: "Set Rollout %",
+      description: "Adjust the gradual rollout percentage",
+      handler: "flags.setRollout",
+      params: [
+        {
+          name: "flagKey",
+          type: "string",
+          label: "Flag Key",
+          placeholder: "new-dashboard",
+          required: true,
+        },
+        {
+          name: "percentage",
+          type: "number",
+          label: "Percentage",
+          placeholder: "50",
+          required: true,
+        },
+      ],
+    },
+    {
+      id: "target-user",
+      label: "Target User",
+      description: "Add a user to the targeted list",
+      handler: "flags.targetUser",
+      variant: "secondary",
+      params: [
+        {
+          name: "flagKey",
+          type: "string",
+          label: "Flag Key",
+          placeholder: "ai-assistant",
+          required: true,
+        },
+        {
+          name: "userId",
+          type: "string",
+          label: "User ID",
+          placeholder: "user_vip",
+          required: true,
+        },
+      ],
+    },
+    {
+      id: "switch-user",
+      label: "Switch User",
+      description: "Change the current user context",
+      handler: "flags.switchUser",
+      params: [
+        {
+          name: "userId",
+          type: "string",
+          label: "User ID",
+          placeholder: "user_new",
+          required: true,
+        },
+      ],
+    },
+  ],
+  steps: [
+    {
+      id: "define-flags",
+      title: "Define Flags",
+      description: "Configure feature flags with metadata",
+      explanation:
+        "Each flag has a key, name, description, and configuration. Flags can be simple on/off toggles or have percentage-based rollouts and user targeting.",
+      codeLines: "1-20",
+      status: "pending",
+    },
+    {
+      id: "check-enabled",
+      title: "Check If Enabled",
+      description: "Evaluate a flag for a specific user",
+      explanation:
+        "The isEnabled function checks: (1) if the flag exists and is enabled, (2) if the user is in the targeted list, (3) if the user falls within the rollout percentage using a deterministic hash.",
+      codeLines: "22-45",
+      status: "pending",
+    },
+    {
+      id: "rollout-logic",
+      title: "Percentage Rollout",
+      description: "Gradual rollout using deterministic hashing",
+      explanation:
+        "We hash the user ID + flag key to get a consistent 0-99 value. If this value is less than the rollout percentage, the user gets the feature. This ensures users don't flip-flop between enabled/disabled.",
+      codeLines: "47-60",
+      status: "pending",
+    },
+    {
+      id: "use-in-code",
+      title: "Use in Components",
+      description: "Conditionally render features",
+      explanation:
+        "In React components, use the flag hook or provider to conditionally render features. The flag state is evaluated once and cached for the session.",
+      codeLines: "62-80",
+      status: "pending",
+    },
+  ],
+  visualizations: [{ type: "flag-state", label: "Flag State" }],
+  codeContent: `// lib/flags/config.ts - Feature Flags with Rollouts
+import { get } from "@vercel/edge-config";
+
+export interface FeatureFlag {
+  key: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  rolloutPercentage: number;  // 0-100
+  targetedUsers: string[];    // Always enabled for these users
+}
+
+// Hash user ID for deterministic rollout
+function hashToPercentage(userId: string, flagKey: string): number {
+  let hash = 0;
+  const str = \`\${userId}:\${flagKey}\`;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash) % 100;
+}
+
+export async function isFeatureEnabled(
+  flagKey: string,
+  userId: string
+): Promise<boolean> {
+  // Fetch flag config from Edge Config (or Redis/database)
+  const flag = await get<FeatureFlag>(flagKey);
+
+  if (!flag || !flag.enabled) {
+    return false;
+  }
+
+  // Check if user is explicitly targeted
+  if (flag.targetedUsers.includes(userId)) {
+    return true;
+  }
+
+  // Check rollout percentage
+  const userPercentage = hashToPercentage(userId, flagKey);
+  return userPercentage < flag.rolloutPercentage;
+}
+
+// lib/flags/provider.tsx - React Provider
+"use client";
+
+import { createContext, useContext, useEffect, useState } from "react";
+
+interface FlagContextValue {
+  flags: Record<string, boolean>;
+  isLoading: boolean;
+}
+
+const FlagContext = createContext<FlagContextValue>({
+  flags: {},
+  isLoading: true,
+});
+
+export function FlagProvider({
+  children,
+  userId,
+}: {
+  children: React.ReactNode;
+  userId: string;
+}) {
+  const [flags, setFlags] = useState<Record<string, boolean>>({});
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(\`/api/flags?userId=\${userId}\`)
+      .then((res) => res.json())
+      .then((data) => {
+        setFlags(data.flags);
+        setIsLoading(false);
+      });
+  }, [userId]);
+
+  return (
+    <FlagContext.Provider value={{ flags, isLoading }}>
+      {children}
+    </FlagContext.Provider>
+  );
+}
+
+export function useFlag(flagKey: string): boolean {
+  const { flags } = useContext(FlagContext);
+  return flags[flagKey] ?? false;
+}
+
+// components/feature-gate.tsx
+export function FeatureGate({
+  flag,
+  children,
+  fallback = null,
+}: {
+  flag: string;
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}) {
+  const enabled = useFlag(flag);
+  return enabled ? <>{children}</> : <>{fallback}</>;
+}
+
+// Usage in components
+function Dashboard() {
+  return (
+    <FeatureGate flag="new-dashboard" fallback={<LegacyDashboard />}>
+      <NewDashboard />
+    </FeatureGate>
+  );
+}
+`,
+};
+
 // Pattern demo registry
 export const demoConfigs: Record<string, PatternDemoConfig> = {
   "caching/in-memory-cache": inMemoryCacheDemo,
@@ -1217,6 +1495,7 @@ export const demoConfigs: Record<string, PatternDemoConfig> = {
   "monitoring/logging": loggingDemo,
   "environment/type-safe-env": typeSafeEnvDemo,
   "auth/sessions": sessionsDemo,
+  "developer-experience/feature-flags": featureFlagsDemo,
 };
 
 export function getDemoConfig(category: string, slug: string): PatternDemoConfig | undefined {
