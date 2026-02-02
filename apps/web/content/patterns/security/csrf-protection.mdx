@@ -1,0 +1,164 @@
+# CSRF Protection
+
+Cross-Site Request Forgery protection using secure tokens.
+
+## The Problem
+
+Forms and state-changing requests are vulnerable to CSRF attacks where:
+
+- Malicious sites trick users into making unwanted requests
+- Requests appear legitimate (include cookies)
+- No way to verify request origin
+
+## The Solution
+
+Generate and validate CSRF tokens using the Web Crypto API. Include tokens in forms and validate on the server.
+
+## Files
+
+```typescript title="lib/csrf/tokens.ts"
+import { cookies } from "next/headers";
+
+const CSRF_COOKIE = "csrf_token";
+const CSRF_SECRET = process.env.CSRF_SECRET || "your-csrf-secret-key";
+const TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
+
+// Generate HMAC signature
+async function sign(data: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(CSRF_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+
+// Generate a new CSRF token
+export async function generateCSRFToken(): Promise<string> {
+  const timestamp = Date.now().toString();
+  const random = crypto.randomUUID();
+  const data = `${timestamp}:${random}`;
+  const signature = await sign(data);
+
+  const token = `${data}:${signature}`;
+
+  // Store in HTTP-only cookie
+  const cookieStore = await cookies();
+  cookieStore.set(CSRF_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: TOKEN_EXPIRY / 1000,
+  });
+
+  return token;
+}
+
+// Validate CSRF token
+export async function validateCSRFToken(token: string): Promise<boolean> {
+  const cookieStore = await cookies();
+  const storedToken = cookieStore.get(CSRF_COOKIE)?.value;
+
+  if (!storedToken || storedToken !== token) {
+    return false;
+  }
+
+  const [timestamp, random, signature] = token.split(":");
+  const data = `${timestamp}:${random}`;
+  const expectedSignature = await sign(data);
+
+  if (signature !== expectedSignature) {
+    return false;
+  }
+
+  // Check expiry
+  const tokenTime = parseInt(timestamp);
+  if (Date.now() - tokenTime > TOKEN_EXPIRY) {
+    return false;
+  }
+
+  return true;
+}
+```
+
+```tsx title="components/csrf-input.tsx"
+"use client";
+
+import { useEffect, useState } from "react";
+
+export function CSRFInput() {
+  const [token, setToken] = useState("");
+
+  useEffect(() => {
+    fetch("/api/csrf")
+      .then((res) => res.json())
+      .then((data) => setToken(data.token));
+  }, []);
+
+  return <input type="hidden" name="csrf_token" value={token} />;
+}
+```
+
+```typescript title="app/api/csrf/route.ts"
+import { NextResponse } from "next/server";
+import { generateCSRFToken } from "@/lib/csrf/tokens";
+
+export async function GET() {
+  const token = await generateCSRFToken();
+  return NextResponse.json({ token });
+}
+```
+
+## Usage
+
+### In Forms
+
+```tsx
+import { CSRFInput } from "@/components/csrf-input";
+
+export function ContactForm() {
+  return (
+    <form action="/api/contact" method="POST">
+      <CSRFInput />
+      <input name="email" type="email" required />
+      <button type="submit">Submit</button>
+    </form>
+  );
+}
+```
+
+### Validate in API Route
+
+```typescript
+import { validateCSRFToken } from "@/lib/csrf/tokens";
+
+export async function POST(req: Request) {
+  const formData = await req.formData();
+  const csrfToken = formData.get("csrf_token") as string;
+
+  if (!(await validateCSRFToken(csrfToken))) {
+    return Response.json({ error: "Invalid CSRF token" }, { status: 403 });
+  }
+
+  // Process request...
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable      | Description                   | Required            |
+| ------------- | ----------------------------- | ------------------- |
+| `CSRF_SECRET` | Secret key for signing tokens | Yes (in production) |
+
+### Generate Secret
+
+```bash
+openssl rand -hex 32
+```

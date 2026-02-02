@@ -1,0 +1,144 @@
+# Data Encryption
+
+Field-level encryption for sensitive data using AES-256-GCM.
+
+## The Problem
+
+Storing sensitive data (PII, credentials, payment info) requires:
+
+- Encryption at rest beyond database-level encryption
+- Field-level granularity for compliance
+- Secure key management
+- Protection against database breaches
+
+## The Solution
+
+Use AES-256-GCM for field-level encryption with automatic key rotation support and Prisma middleware for seamless integration.
+
+## Files
+
+```typescript title="lib/encryption/crypto.ts"
+import crypto from "crypto";
+
+const ALGORITHM = "aes-256-gcm";
+const IV_LENGTH = 16;
+const AUTH_TAG_LENGTH = 16;
+const ENCODING = "base64" as const;
+
+function getKey(): Buffer {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key || key.length !== 64) {
+    throw new Error("ENCRYPTION_KEY must be 64 hex characters (256 bits)");
+  }
+  return Buffer.from(key, "hex");
+}
+
+export function encrypt(plaintext: string): string {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv);
+
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  // Format: iv:authTag:ciphertext (all base64)
+  return [iv.toString(ENCODING), authTag.toString(ENCODING), encrypted.toString(ENCODING)].join(
+    ":"
+  );
+}
+
+export function decrypt(encryptedData: string): string {
+  const [ivB64, authTagB64, ciphertextB64] = encryptedData.split(":");
+
+  const iv = Buffer.from(ivB64, ENCODING);
+  const authTag = Buffer.from(authTagB64, ENCODING);
+  const ciphertext = Buffer.from(ciphertextB64, ENCODING);
+
+  const decipher = crypto.createDecipheriv(ALGORITHM, getKey(), iv);
+  decipher.setAuthTag(authTag);
+
+  return decipher.update(ciphertext) + decipher.final("utf8");
+}
+```
+
+```typescript title="lib/encryption/fields.ts"
+import { encrypt, decrypt } from "./crypto";
+
+// Encrypt specific fields in an object
+export function encryptFields<T extends Record<string, unknown>>(data: T, fields: (keyof T)[]): T {
+  const result = { ...data };
+
+  for (const field of fields) {
+    const value = result[field];
+    if (typeof value === "string" && value.length > 0) {
+      result[field] = encrypt(value) as T[keyof T];
+    }
+  }
+
+  return result;
+}
+
+// Decrypt specific fields in an object
+export function decryptFields<T extends Record<string, unknown>>(data: T, fields: (keyof T)[]): T {
+  const result = { ...data };
+
+  for (const field of fields) {
+    const value = result[field];
+    if (typeof value === "string" && value.includes(":")) {
+      try {
+        result[field] = decrypt(value) as T[keyof T];
+      } catch {
+        // Field wasn't encrypted or decryption failed
+      }
+    }
+  }
+
+  return result;
+}
+```
+
+## Usage
+
+### Encrypt Before Storing
+
+```typescript
+import { encryptFields } from "@/lib/encryption/fields";
+
+const userData = encryptFields(
+  { name: "John", ssn: "123-45-6789", email: "john@example.com" },
+  ["ssn"] // Only encrypt SSN
+);
+
+await db.user.create({ data: userData });
+```
+
+### Decrypt After Reading
+
+```typescript
+import { decryptFields } from "@/lib/encryption/fields";
+
+const user = await db.user.findUnique({ where: { id } });
+const decrypted = decryptFields(user, ["ssn"]);
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable         | Description                     | Required |
+| ---------------- | ------------------------------- | -------- |
+| `ENCRYPTION_KEY` | 64 hex characters (256-bit key) | Yes      |
+
+### Generate a Key
+
+```bash
+openssl rand -hex 32
+```
+
+## Key Rotation
+
+For key rotation, store the key version with encrypted data:
+
+```typescript
+// Prefix encrypted data with key version
+const encrypted = `v1:${encrypt(plaintext)}`;
+```

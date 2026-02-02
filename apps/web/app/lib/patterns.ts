@@ -569,6 +569,63 @@ export const patterns: Pattern[] = [
     files: [],
     dependencies: [],
   },
+  // Security Patterns
+  {
+    name: "Audit Logging",
+    slug: "audit-logging",
+    description: "Structured audit trail for compliance and debugging with immutable logs.",
+    category: "security",
+    tier: "free",
+    complexity: "intermediate",
+    tags: ["audit", "logging", "compliance", "security", "pino"],
+    files: [],
+    dependencies: [{ name: "pino" }],
+  },
+  {
+    name: "Data Encryption",
+    slug: "data-encryption",
+    description: "Field-level encryption for sensitive data using AES-256-GCM.",
+    category: "security",
+    tier: "free",
+    complexity: "intermediate",
+    tags: ["encryption", "security", "pii", "aes", "crypto"],
+    files: [],
+    dependencies: [],
+  },
+  {
+    name: "CSRF Protection",
+    slug: "csrf-protection",
+    description: "Cross-Site Request Forgery protection for form submissions using Web Crypto API.",
+    category: "security",
+    tier: "free",
+    complexity: "beginner",
+    tags: ["csrf", "security", "forms", "tokens"],
+    files: [],
+    dependencies: [],
+  },
+  {
+    name: "CORS Config",
+    slug: "cors-config",
+    description:
+      "Configurable CORS setup for API routes with origin validation and preflight handling.",
+    category: "security",
+    tier: "free",
+    complexity: "beginner",
+    tags: ["cors", "security", "api", "headers"],
+    files: [],
+    dependencies: [],
+  },
+  {
+    name: "Multi-Factor Auth",
+    slug: "mfa",
+    description: "Multi-factor authentication with TOTP, QR code generation, and backup codes.",
+    category: "security",
+    tier: "free",
+    complexity: "intermediate",
+    tags: ["mfa", "2fa", "totp", "security", "authentication"],
+    files: [],
+    dependencies: [{ name: "otpauth" }, { name: "qrcode" }],
+  },
 ];
 
 export function getPattern(category: string, slug: string): Pattern | undefined {
@@ -595,6 +652,10 @@ const categoryDisplayNames: Record<string, string> = {
   monitoring: "Monitoring",
   environment: "Environment",
   deployment: "Deployment",
+  ai: "AI & LLM",
+  infrastructure: "Infrastructure",
+  "developer-experience": "Developer Experience",
+  security: "Security & Compliance",
 };
 
 // Category descriptions (for homepage)
@@ -609,6 +670,10 @@ const categoryDescriptions: Record<string, string> = {
   monitoring: "Error tracking and observability",
   environment: "Type-safe configs and secrets management",
   deployment: "Docker, CI/CD, and production-ready configs",
+  ai: "AI chat, embeddings, tool calling, and streaming UI patterns",
+  infrastructure: "File uploads, background jobs, webhooks, and real-time features",
+  "developer-experience": "Feature flags, analytics, search, and internationalization",
+  security: "Audit logging, encryption, CSRF protection, and MFA",
 };
 
 export interface CategoryGroup {

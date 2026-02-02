@@ -136,7 +136,7 @@ export const config = {
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "next-auth", version: "beta" }, { name: "@auth/prisma-adapter" }],
+    nextjs: [{ name: "next-auth", version: "^5.0.0-beta.25" }, { name: "@auth/prisma-adapter" }],
     remix: [],
     sveltekit: [],
     nuxt: [],

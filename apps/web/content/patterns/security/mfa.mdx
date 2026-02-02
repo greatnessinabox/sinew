@@ -1,0 +1,163 @@
+# Multi-Factor Authentication
+
+TOTP-based multi-factor authentication with backup codes.
+
+## The Problem
+
+Password-only authentication is vulnerable to:
+
+- Credential stuffing attacks
+- Phishing
+- Password reuse across sites
+- Brute force attempts
+
+## The Solution
+
+Add TOTP (Time-based One-Time Passwords) as a second factor using the `otpauth` library. Includes QR code generation for authenticator apps and backup codes for recovery.
+
+## Files
+
+```typescript title="lib/mfa/totp.ts"
+import { TOTP, Secret } from "otpauth";
+import crypto from "crypto";
+
+const MFA_ISSUER = process.env.NEXT_PUBLIC_APP_NAME || "MyApp";
+
+// Generate a new TOTP secret
+export function generateSecret(): string {
+  const secret = new Secret({ size: 20 });
+  return secret.base32;
+}
+
+// Generate TOTP URI for QR code
+export function generateTOTPUri(secret: string, accountName: string): string {
+  const totp = new TOTP({
+    issuer: MFA_ISSUER,
+    label: accountName,
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret: Secret.fromBase32(secret),
+  });
+  return totp.toString();
+}
+
+// Verify a TOTP code
+export function verifyTOTPCode(secret: string, code: string): boolean {
+  const totp = new TOTP({
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret: Secret.fromBase32(secret),
+  });
+  // Allow 1 period tolerance (30 seconds)
+  return totp.validate({ token: code, window: 1 }) !== null;
+}
+
+// Generate backup codes
+export function generateBackupCodes(count = 10): string[] {
+  const codes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const code = crypto.randomBytes(4).toString("hex").toUpperCase();
+    codes.push(`${code.slice(0, 4)}-${code.slice(4)}`);
+  }
+  return codes;
+}
+
+// Hash backup code for storage
+export function hashBackupCode(code: string): string {
+  return crypto.createHash("sha256").update(code.replace(/-/g, "").toUpperCase()).digest("hex");
+}
+```
+
+```typescript title="lib/mfa/qrcode.ts"
+import QRCode from "qrcode";
+
+export async function generateQRCodeDataURL(uri: string): Promise<string> {
+  return QRCode.toDataURL(uri, {
+    width: 256,
+    margin: 2,
+    color: { dark: "#000000", light: "#FFFFFF" },
+  });
+}
+```
+
+```typescript title="app/api/mfa/setup/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import {
+  generateSecret,
+  generateTOTPUri,
+  generateBackupCodes,
+  hashBackupCode,
+} from "@/lib/mfa/totp";
+import { generateQRCodeDataURL } from "@/lib/mfa/qrcode";
+
+export async function POST(req: NextRequest) {
+  const userId = req.headers.get("x-user-id");
+  const userEmail = req.headers.get("x-user-email");
+
+  if (!userId || !userEmail) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const secret = generateSecret();
+  const uri = generateTOTPUri(secret, userEmail);
+  const qrCode = await generateQRCodeDataURL(uri);
+  const backupCodes = generateBackupCodes(10);
+
+  // TODO: Store secret and hashed backup codes in database
+  // const hashedCodes = backupCodes.map(hashBackupCode);
+
+  return NextResponse.json({
+    secret,
+    qrCode,
+    backupCodes, // Show to user once
+  });
+}
+```
+
+## Usage
+
+### Setup Flow
+
+1. User initiates MFA setup
+2. Generate secret and QR code
+3. User scans QR code with authenticator app
+4. User enters code to verify setup
+5. Store encrypted secret in database
+
+### Verify During Login
+
+```typescript
+import { verifyTOTPCode } from "@/lib/mfa/totp";
+
+// After password verification
+const mfaSecret = await getUserMFASecret(userId);
+if (mfaSecret) {
+  const isValid = verifyTOTPCode(mfaSecret, userInputCode);
+  if (!isValid) {
+    return { error: "Invalid MFA code" };
+  }
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable               | Description                     | Required |
+| ---------------------- | ------------------------------- | -------- |
+| `NEXT_PUBLIC_APP_NAME` | App name shown in authenticator | No       |
+
+### Database Schema
+
+```prisma title="prisma/schema.prisma"
+model MFA {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  secret      String   // Encrypted
+  backupCodes String[] // Hashed
+  enabledAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+```
