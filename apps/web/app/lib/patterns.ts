@@ -569,6 +569,162 @@ export const patterns: Pattern[] = [
     files: [],
     dependencies: [],
   },
+  // Developer Experience
+  {
+    name: "Feature Flags",
+    slug: "feature-flags",
+    description:
+      "Type-safe feature flags with gradual rollouts. Supports percentage-based rollouts, user targeting, and A/B testing using Vercel Edge Config or Upstash.",
+    category: "developer-experience",
+    tier: "freemium",
+    complexity: "intermediate",
+    tags: ["feature-flags", "rollout", "ab-testing", "edge-config"],
+    alternatives: [
+      {
+        name: "Vercel Edge Config",
+        description: "Ultra-low latency feature flags at the edge",
+        url: "https://vercel.com/docs/storage/edge-config",
+        pricingTier: "freemium",
+        pricingNote: "Included with Vercel Pro",
+        advantages: ["Sub-millisecond reads at edge", "Integrated with Vercel"],
+        recommended: true,
+      },
+      {
+        name: "LaunchDarkly",
+        description: "Enterprise feature management platform",
+        url: "https://launchdarkly.com",
+        pricingTier: "paid",
+        advantages: ["Enterprise features", "Advanced targeting"],
+      },
+      {
+        name: "Flagsmith",
+        description: "Open-source feature flag service",
+        url: "https://flagsmith.com",
+        pricingTier: "freemium",
+        advantages: ["Open source", "Self-hostable"],
+      },
+    ],
+    files: [],
+    dependencies: [{ name: "@vercel/edge-config" }, { name: "@upstash/redis" }, { name: "zod" }],
+  },
+  {
+    name: "Analytics",
+    slug: "analytics",
+    description:
+      "Privacy-friendly analytics with PostHog. Includes event tracking, user identification, and feature flag integration.",
+    category: "developer-experience",
+    tier: "freemium",
+    complexity: "beginner",
+    tags: ["analytics", "posthog", "tracking", "events", "privacy"],
+    alternatives: [
+      {
+        name: "PostHog",
+        description: "Open-source product analytics with feature flags",
+        url: "https://posthog.com",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 1M events/month",
+        advantages: ["Open source", "Self-hostable", "Feature flags included"],
+        recommended: true,
+      },
+      {
+        name: "Plausible",
+        description: "Simple, privacy-focused web analytics",
+        url: "https://plausible.io",
+        pricingTier: "paid",
+        pricingNote: "From $9/month",
+        advantages: ["Privacy-focused", "No cookies required", "GDPR compliant"],
+      },
+      {
+        name: "Umami",
+        description: "Open-source, privacy-focused analytics",
+        url: "https://umami.is",
+        pricingTier: "free",
+        advantages: ["Free and open source", "Self-hostable"],
+      },
+    ],
+    files: [],
+    dependencies: [{ name: "posthog-js" }, { name: "posthog-node" }],
+  },
+  {
+    name: "Search",
+    slug: "search",
+    description:
+      "Full-text search with typo tolerance, filters, and facets using Meilisearch. Includes indexing utilities and React hooks.",
+    category: "developer-experience",
+    tier: "freemium",
+    complexity: "intermediate",
+    tags: ["search", "meilisearch", "full-text", "filters", "facets"],
+    alternatives: [
+      {
+        name: "Algolia",
+        description: "Industry-leading search-as-a-service",
+        url: "https://algolia.com",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 10K searches/month",
+        advantages: ["Industry standard", "Excellent documentation"],
+      },
+      {
+        name: "Meilisearch",
+        description: "Open-source, typo-tolerant search engine",
+        url: "https://meilisearch.com",
+        pricingTier: "freemium",
+        pricingNote: "Free self-hosted, cloud from $30/month",
+        advantages: ["Open source", "Easy to self-host", "Great typo tolerance"],
+        recommended: true,
+      },
+      {
+        name: "Typesense",
+        description: "Open-source alternative to Algolia",
+        url: "https://typesense.org",
+        pricingTier: "freemium",
+        advantages: ["Open source", "Self-hostable", "Geographic search"],
+      },
+    ],
+    files: [],
+    dependencies: [{ name: "meilisearch" }],
+  },
+  {
+    name: "Internationalization",
+    slug: "i18n",
+    description:
+      "Type-safe internationalization with next-intl. Includes locale detection, server components support, and message formatting.",
+    category: "developer-experience",
+    tier: "free",
+    complexity: "intermediate",
+    tags: ["i18n", "internationalization", "localization", "next-intl"],
+    files: [],
+    dependencies: [{ name: "next-intl" }],
+  },
+  {
+    name: "Content Moderation",
+    slug: "content-moderation",
+    description:
+      "AI-powered content moderation for user-generated content. Uses OpenAI's free moderation API for text.",
+    category: "developer-experience",
+    tier: "freemium",
+    complexity: "intermediate",
+    tags: ["moderation", "content", "safety", "openai", "ugc"],
+    alternatives: [
+      {
+        name: "OpenAI Moderation",
+        description: "Free content moderation API from OpenAI",
+        url: "https://platform.openai.com/docs/guides/moderation",
+        pricingTier: "free",
+        advantages: ["Free to use", "Multiple categories", "Fast response"],
+        recommended: true,
+      },
+      {
+        name: "Perspective API",
+        description: "Google's toxicity detection API",
+        url: "https://perspectiveapi.com",
+        pricingTier: "free",
+        pricingNote: "Free with rate limits",
+        advantages: ["Toxicity scoring", "Multiple languages"],
+      },
+    ],
+    files: [],
+    dependencies: [{ name: "openai" }],
+  },
 ];
 
 export function getPattern(category: string, slug: string): Pattern | undefined {
@@ -595,6 +751,7 @@ const categoryDisplayNames: Record<string, string> = {
   monitoring: "Monitoring",
   environment: "Environment",
   deployment: "Deployment",
+  "developer-experience": "Developer Experience",
 };
 
 // Category descriptions (for homepage)
@@ -609,6 +766,7 @@ const categoryDescriptions: Record<string, string> = {
   monitoring: "Error tracking and observability",
   environment: "Type-safe configs and secrets management",
   deployment: "Docker, CI/CD, and production-ready configs",
+  "developer-experience": "Feature flags, analytics, search, and internationalization",
 };
 
 export interface CategoryGroup {

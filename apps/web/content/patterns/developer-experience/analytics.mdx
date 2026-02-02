@@ -1,0 +1,188 @@
+# Analytics
+
+Privacy-friendly analytics with custom events.
+
+## The Problem
+
+Tracking user behavior requires:
+
+- Privacy-respecting data collection
+- Custom event tracking
+- User identification
+- Server-side tracking support
+
+## The Solution
+
+Use PostHog for product analytics with event tracking, user identification, and feature flag integration. Includes both client-side and server-side tracking utilities.
+
+## Files
+
+```typescript title="lib/analytics/client.ts"
+import posthog from "posthog-js";
+
+// Initialize PostHog (call once in your app)
+export function initAnalytics() {
+  if (typeof window === "undefined") return;
+  if (posthog.__loaded) return;
+
+  posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com",
+    capture_pageview: false, // We'll capture manually
+    capture_pageleave: true,
+    persistence: "localStorage+cookie",
+  });
+}
+
+// Identify user (call after login)
+export function identifyUser(userId: string, properties?: Record<string, unknown>) {
+  posthog.identify(userId, properties);
+}
+
+// Reset user (call after logout)
+export function resetUser() {
+  posthog.reset();
+}
+
+// Track page view
+export function trackPageView(url?: string) {
+  posthog.capture("$pageview", {
+    $current_url: url || window.location.href,
+  });
+}
+
+// Track custom event
+export function trackEvent(event: string, properties?: Record<string, unknown>) {
+  posthog.capture(event, properties);
+}
+```
+
+```typescript title="lib/analytics/events.ts"
+import { trackEvent } from "./client";
+
+// Type-safe event tracking
+export const Events = {
+  // User events
+  signUp: (method: "email" | "google" | "github") => trackEvent("user_signed_up", { method }),
+
+  login: (method: "email" | "google" | "github") => trackEvent("user_logged_in", { method }),
+
+  // Conversion events
+  trialStarted: (plan: string) => trackEvent("trial_started", { plan }),
+
+  subscriptionStarted: (plan: string, interval: "monthly" | "yearly") =>
+    trackEvent("subscription_started", { plan, interval }),
+
+  // E-commerce events
+  purchaseCompleted: (orderId: string, total: number, items: number) =>
+    trackEvent("purchase_completed", { orderId, total, items }),
+
+  // Engagement events
+  searchPerformed: (query: string, resultsCount: number) =>
+    trackEvent("search_performed", { query, resultsCount }),
+};
+```
+
+```tsx title="components/analytics-provider.tsx"
+"use client";
+
+import { useEffect } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { initAnalytics, trackPageView } from "@/lib/analytics/client";
+
+export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Initialize PostHog on mount
+  useEffect(() => {
+    initAnalytics();
+  }, []);
+
+  // Track page views on route change
+  useEffect(() => {
+    if (pathname) {
+      const url = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+      trackPageView(url);
+    }
+  }, [pathname, searchParams]);
+
+  return <>{children}</>;
+}
+```
+
+```typescript title="lib/analytics/server.ts"
+import { PostHog } from "posthog-node";
+
+let posthogServer: PostHog | null = null;
+
+export function getServerPostHog(): PostHog {
+  if (!posthogServer) {
+    posthogServer = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+      host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com",
+      flushAt: 1,
+      flushInterval: 0,
+    });
+  }
+  return posthogServer;
+}
+
+// Track server-side event
+export async function trackServerEvent(
+  distinctId: string,
+  event: string,
+  properties?: Record<string, unknown>
+) {
+  const posthog = getServerPostHog();
+  posthog.capture({ distinctId, event, properties });
+  await posthog.flush();
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                   | Description             | Required |
+| -------------------------- | ----------------------- | -------- |
+| `NEXT_PUBLIC_POSTHOG_KEY`  | PostHog project API key | Yes      |
+| `NEXT_PUBLIC_POSTHOG_HOST` | PostHog host (US or EU) | No       |
+
+## Usage
+
+### Add Provider to Layout
+
+```tsx
+import { Suspense } from "react";
+import { AnalyticsProvider } from "@/components/analytics-provider";
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        <Suspense fallback={null}>
+          <AnalyticsProvider>{children}</AnalyticsProvider>
+        </Suspense>
+      </body>
+    </html>
+  );
+}
+```
+
+### Track Events
+
+```typescript
+import { Events } from "@/lib/analytics/events";
+
+// On sign up
+Events.signUp("google");
+
+// On purchase
+Events.purchaseCompleted("order_123", 99.99, 3);
+```
+
+## Alternatives
+
+- **PostHog** - Open-source with feature flags
+- **Plausible** - Privacy-focused, no cookies
+- **Umami** - Open-source, self-hostable
+- **Mixpanel** - Advanced funnel analysis

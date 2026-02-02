@@ -1,0 +1,171 @@
+# Feature Flags
+
+Type-safe feature flags with gradual rollouts.
+
+## The Problem
+
+Rolling out features safely requires:
+
+- Gradual percentage-based rollouts
+- User targeting for beta access
+- A/B testing capabilities
+- Fast flag evaluation at the edge
+
+## The Solution
+
+Use Vercel Edge Config for sub-millisecond flag reads, or Upstash Redis as a fallback. Includes type-safe flag definitions with Zod and React components for conditional rendering.
+
+## Files
+
+```typescript title="lib/flags/config.ts"
+import { z } from "zod";
+
+// Define your feature flags with type safety
+export const flagSchema = z.object({
+  // Boolean flags
+  newDashboard: z.boolean().default(false),
+  darkMode: z.boolean().default(true),
+  betaFeatures: z.boolean().default(false),
+
+  // Percentage rollouts (0-100)
+  newCheckoutPercentage: z.number().min(0).max(100).default(0),
+  aiAssistantPercentage: z.number().min(0).max(100).default(0),
+
+  // String variants for A/B testing
+  pricingPageVariant: z.enum(["control", "variant-a", "variant-b"]).default("control"),
+  ctaButtonText: z.enum(["Get Started", "Start Free Trial", "Try It Now"]).default("Get Started"),
+});
+
+export type Flags = z.infer<typeof flagSchema>;
+
+// Default flag values
+export const defaultFlags: Flags = flagSchema.parse({});
+```
+
+```typescript title="lib/flags/provider.ts"
+import { get } from "@vercel/edge-config";
+import { Redis } from "@upstash/redis";
+import { flagSchema, defaultFlags, type Flags } from "./config";
+
+const PROVIDER = process.env.FLAGS_PROVIDER ?? "edge-config";
+const redis = process.env.UPSTASH_REDIS_REST_URL ? Redis.fromEnv() : null;
+
+// Get all flags
+export async function getFlags(): Promise<Flags> {
+  try {
+    if (PROVIDER === "edge-config") {
+      const flags = await get<Partial<Flags>>("flags");
+      return flagSchema.parse({ ...defaultFlags, ...flags });
+    } else if (redis) {
+      const flags = await redis.hgetall<Partial<Flags>>("flags");
+      return flagSchema.parse({ ...defaultFlags, ...flags });
+    }
+  } catch (error) {
+    console.error("Error fetching flags:", error);
+  }
+  return defaultFlags;
+}
+
+// Check if user is in percentage rollout
+export function isInRollout(userId: string, percentage: number): boolean {
+  if (percentage >= 100) return true;
+  if (percentage <= 0) return false;
+
+  // Deterministic hash for consistent user experience
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    const char = userId.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
+  }
+
+  const userPercentage = Math.abs(hash % 100);
+  return userPercentage < percentage;
+}
+```
+
+```tsx title="components/feature-gate.tsx"
+"use client";
+
+import { createContext, useContext, ReactNode } from "react";
+import type { Flags } from "@/lib/flags/config";
+
+const FlagsContext = createContext<Partial<Flags>>({});
+
+export function FlagsProvider({ flags, children }: { flags: Partial<Flags>; children: ReactNode }) {
+  return <FlagsContext.Provider value={flags}>{children}</FlagsContext.Provider>;
+}
+
+export function useFlag<K extends keyof Flags>(key: K): Flags[K] | undefined {
+  const flags = useContext(FlagsContext);
+  return flags[key];
+}
+
+// Component for conditionally rendering based on flag
+export function FeatureGate({
+  flag,
+  children,
+  fallback = null,
+}: {
+  flag: keyof Flags;
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const value = useFlag(flag);
+  if (typeof value === "boolean") {
+    return value ? <>{children}</> : <>{fallback}</>;
+  }
+  return value !== undefined ? <>{children}</> : <>{fallback}</>;
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                   | Description              | Required              |
+| -------------------------- | ------------------------ | --------------------- |
+| `FLAGS_PROVIDER`           | "edge-config" or "redis" | No                    |
+| `EDGE_CONFIG`              | Vercel Edge Config URL   | Yes (for Edge Config) |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis URL        | Yes (for Redis)       |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis token      | Yes (for Redis)       |
+
+## Usage
+
+### Check Flags Server-Side
+
+```typescript
+import { getFlags, isInRollout } from "@/lib/flags/provider";
+
+export default async function Page() {
+  const flags = await getFlags();
+  const userId = "user_123";
+
+  const showNewCheckout = isInRollout(userId, flags.newCheckoutPercentage);
+
+  return showNewCheckout ? <NewCheckout /> : <OldCheckout />;
+}
+```
+
+### Use in Components
+
+```tsx
+import { FeatureGate, FlagsProvider } from "@/components/feature-gate";
+
+export function App({ flags }) {
+  return (
+    <FlagsProvider flags={flags}>
+      <FeatureGate flag="newDashboard" fallback={<OldDashboard />}>
+        <NewDashboard />
+      </FeatureGate>
+    </FlagsProvider>
+  );
+}
+```
+
+## Alternatives
+
+- **Vercel Edge Config** - Sub-millisecond reads at edge
+- **LaunchDarkly** - Enterprise feature management
+- **Flagsmith** - Open-source, self-hostable
+- **PostHog** - Combined with product analytics
