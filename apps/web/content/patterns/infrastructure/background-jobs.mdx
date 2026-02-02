@@ -1,0 +1,180 @@
+# Background Jobs
+
+Serverless background job processing with Inngest.
+
+## The Problem
+
+Serverless functions have execution time limits and need:
+
+- Reliable background processing
+- Automatic retries on failure
+- Event-driven workflows
+- Idempotency guarantees
+
+## The Solution
+
+Use Inngest for event-driven background jobs with built-in retries, step functions, and local development tools.
+
+## Files
+
+```typescript title="lib/inngest/client.ts"
+import { Inngest } from "inngest";
+
+export const inngest = new Inngest({
+  id: "my-app",
+  eventKey: process.env.INNGEST_EVENT_KEY,
+});
+
+// Define event types for type safety
+export type Events = {
+  "user/created": {
+    data: { userId: string; email: string; name: string };
+  };
+  "order/placed": {
+    data: {
+      orderId: string;
+      userId: string;
+      items: Array<{ productId: string; quantity: number }>;
+      total: number;
+    };
+  };
+};
+```
+
+```typescript title="lib/inngest/functions.ts"
+import { inngest } from "./client";
+
+// Welcome email after user signup
+export const sendWelcomeEmail = inngest.createFunction(
+  { id: "send-welcome-email", retries: 3 },
+  { event: "user/created" },
+  async ({ event, step }) => {
+    const { userId, email, name } = event.data;
+
+    // Send welcome email
+    await step.run("send-email", async () => {
+      // await sendEmail({ to: email, template: 'welcome', data: { name } });
+    });
+
+    // Wait 24 hours then send tips email
+    await step.sleep("wait-for-tips", "24h");
+
+    await step.run("send-tips-email", async () => {
+      // await sendEmail({ to: email, template: 'tips' });
+    });
+
+    return { success: true, userId };
+  }
+);
+
+// Process order with multiple steps
+export const processOrder = inngest.createFunction(
+  {
+    id: "process-order",
+    retries: 5,
+    idempotency: "event.data.orderId", // Prevent duplicates
+  },
+  { event: "order/placed" },
+  async ({ event, step }) => {
+    const { orderId, items, total } = event.data;
+
+    // Reserve inventory
+    await step.run("reserve-inventory", async () => {
+      // await reserveInventory(items);
+    });
+
+    // Charge payment
+    const payment = await step.run("charge-payment", async () => {
+      // return await stripe.charges.create({ amount: total });
+      return { transactionId: "txn_123" };
+    });
+
+    // Send confirmation
+    await step.run("send-confirmation", async () => {
+      // await sendOrderConfirmation(orderId);
+    });
+
+    return { orderId, transactionId: payment.transactionId };
+  }
+);
+
+export const functions = [sendWelcomeEmail, processOrder];
+```
+
+```typescript title="app/api/inngest/route.ts"
+import { serve } from "inngest/next";
+import { inngest } from "@/lib/inngest/client";
+import { functions } from "@/lib/inngest/functions";
+
+export const { GET, POST, PUT } = serve({
+  client: inngest,
+  functions,
+});
+```
+
+```typescript title="lib/inngest/trigger.ts"
+import { inngest } from "./client";
+import type { Events } from "./client";
+
+export async function triggerEvent<K extends keyof Events>(eventName: K, data: Events[K]["data"]) {
+  await inngest.send({ name: eventName, data });
+}
+
+// Helper functions
+export async function onUserCreated(user: { id: string; email: string; name: string }) {
+  await triggerEvent("user/created", {
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+  });
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable              | Description                   | Required         |
+| --------------------- | ----------------------------- | ---------------- |
+| `INNGEST_SIGNING_KEY` | Inngest signing key           | Yes (production) |
+| `INNGEST_EVENT_KEY`   | Event key for external events | Optional         |
+
+### Local Development
+
+```bash
+npx inngest-cli@latest dev
+```
+
+## Usage
+
+### Trigger from API Route
+
+```typescript
+import { onUserCreated } from "@/lib/inngest/trigger";
+
+export async function POST(req: Request) {
+  const user = await createUser(data);
+  await onUserCreated(user);
+  return Response.json(user);
+}
+```
+
+### Trigger from Server Action
+
+```typescript
+"use server";
+
+import { onOrderPlaced } from "@/lib/inngest/trigger";
+
+export async function placeOrder(formData: FormData) {
+  const order = await db.order.create({ data });
+  await onOrderPlaced(order);
+  return order;
+}
+```
+
+## Alternatives
+
+- **Inngest** - Event-driven with zero infrastructure
+- **Trigger.dev** - Open-source, self-hostable
+- **QStash** - Simple HTTP-based message queue

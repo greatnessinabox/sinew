@@ -1,0 +1,199 @@
+# Realtime
+
+Real-time pub/sub updates using Pusher.
+
+## The Problem
+
+Building real-time features requires:
+
+- WebSocket connection management
+- Channel authorization
+- Presence tracking
+- Server-side event publishing
+
+## The Solution
+
+Use Pusher for hosted real-time messaging with React hooks for subscribing to channels and events.
+
+## Files
+
+```typescript title="lib/realtime/pusher-server.ts"
+import Pusher from "pusher";
+
+export const pusher = new Pusher({
+  appId: process.env.PUSHER_APP_ID!,
+  key: process.env.NEXT_PUBLIC_PUSHER_KEY!,
+  secret: process.env.PUSHER_SECRET!,
+  cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+  useTLS: true,
+});
+
+export const channels = {
+  public: (name: string) => `public-${name}`,
+  private: (name: string) => `private-${name}`,
+  presence: (name: string) => `presence-${name}`,
+  user: (userId: string) => `private-user-${userId}`,
+};
+
+export async function publish<T>(channel: string, event: string, data: T) {
+  await pusher.trigger(channel, event, data);
+}
+
+export async function notifyUser<T>(userId: string, event: string, data: T) {
+  await publish(channels.user(userId), event, data);
+}
+```
+
+```typescript title="lib/realtime/pusher-client.ts"
+import PusherClient from "pusher-js";
+
+let pusherClient: PusherClient | null = null;
+
+export function getPusherClient(): PusherClient {
+  if (!pusherClient) {
+    pusherClient = new PusherClient(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+      authEndpoint: "/api/realtime/auth",
+    });
+  }
+  return pusherClient;
+}
+
+export function subscribe(channelName: string) {
+  return getPusherClient().subscribe(channelName);
+}
+
+export function unsubscribe(channelName: string) {
+  getPusherClient().unsubscribe(channelName);
+}
+```
+
+```typescript title="hooks/use-channel.ts"
+"use client";
+
+import { useEffect, useRef, useCallback } from "react";
+import { Channel } from "pusher-js";
+import { subscribe, unsubscribe } from "@/lib/realtime/pusher-client";
+
+export function useChannel(channelName: string) {
+  const channelRef = useRef<Channel | null>(null);
+
+  useEffect(() => {
+    const channel = subscribe(channelName);
+    channelRef.current = channel;
+
+    return () => {
+      unsubscribe(channelName);
+      channelRef.current = null;
+    };
+  }, [channelName]);
+
+  const bind = useCallback(<T>(event: string, callback: (data: T) => void) => {
+    channelRef.current?.bind(event, callback);
+    return () => channelRef.current?.unbind(event, callback);
+  }, []);
+
+  return { bind, channel: channelRef.current };
+}
+```
+
+```typescript title="hooks/use-event.ts"
+"use client";
+
+import { useEffect } from "react";
+import { useChannel } from "./use-channel";
+
+export function useEvent<T>(channelName: string, eventName: string, callback: (data: T) => void) {
+  const { bind } = useChannel(channelName);
+
+  useEffect(() => {
+    return bind<T>(eventName, callback);
+  }, [bind, eventName, callback]);
+}
+```
+
+```typescript title="app/api/realtime/auth/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { pusher } from "@/lib/realtime/pusher-server";
+
+export async function POST(req: NextRequest) {
+  const formData = await req.formData();
+  const socketId = formData.get("socket_id") as string;
+  const channelName = formData.get("channel_name") as string;
+
+  // Get user from your auth system
+  const user = { id: "user_123", name: "John Doe" };
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // For presence channels, include user data
+  if (channelName.startsWith("presence-")) {
+    const auth = pusher.authorizeChannel(socketId, channelName, {
+      user_id: user.id,
+      user_info: { name: user.name },
+    });
+    return NextResponse.json(auth);
+  }
+
+  // For private channels
+  const auth = pusher.authorizeChannel(socketId, channelName);
+  return NextResponse.json(auth);
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                     | Description         | Required |
+| ---------------------------- | ------------------- | -------- |
+| `PUSHER_APP_ID`              | Pusher app ID       | Yes      |
+| `PUSHER_SECRET`              | Pusher secret       | Yes      |
+| `NEXT_PUBLIC_PUSHER_KEY`     | Pusher key (public) | Yes      |
+| `NEXT_PUBLIC_PUSHER_CLUSTER` | Pusher cluster      | Yes      |
+
+## Usage
+
+### Subscribe to Events
+
+```tsx
+"use client";
+
+import { useEvent } from "@/hooks/use-event";
+
+export function ChatRoom({ roomId }: { roomId: string }) {
+  const [messages, setMessages] = useState<Message[]>([]);
+
+  useEvent<Message>(`presence-room-${roomId}`, "message", (message) => {
+    setMessages((prev) => [...prev, message]);
+  });
+
+  return (
+    <div>
+      {messages.map((m) => (
+        <p key={m.id}>{m.text}</p>
+      ))}
+    </div>
+  );
+}
+```
+
+### Publish from Server
+
+```typescript
+import { publish, channels } from "@/lib/realtime/pusher-server";
+
+export async function sendMessage(roomId: string, message: Message) {
+  await db.message.create({ data: message });
+  await publish(channels.presence(roomId), "message", message);
+}
+```
+
+## Alternatives
+
+- **Pusher** - Mature with presence channels
+- **Ably** - Higher free tier limits
+- **Supabase Realtime** - Database change streams
+- **PartyKit** - Edge-native, great for collaboration

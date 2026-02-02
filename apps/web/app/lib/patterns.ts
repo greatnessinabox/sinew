@@ -569,6 +569,156 @@ export const patterns: Pattern[] = [
     files: [],
     dependencies: [],
   },
+  // Infrastructure
+  {
+    name: "File Uploads",
+    slug: "file-uploads",
+    description:
+      "Serverless file uploads with presigned URLs. Supports AWS S3 and Vercel Blob with file validation.",
+    category: "infrastructure",
+    tier: "freemium",
+    complexity: "intermediate",
+    tags: ["uploads", "s3", "vercel-blob", "presigned-urls", "serverless"],
+    alternatives: [
+      {
+        name: "Vercel Blob",
+        description: "Zero-config file storage integrated with Vercel",
+        url: "https://vercel.com/storage/blob",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 1GB storage",
+        advantages: ["Zero configuration on Vercel", "Edge-ready"],
+        recommended: true,
+      },
+      {
+        name: "Uploadthing",
+        description: "Type-safe file uploads with React components",
+        url: "https://uploadthing.com",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 2GB storage",
+        advantages: ["Type-safe file routes", "Built-in React components"],
+      },
+      {
+        name: "Cloudflare R2",
+        description: "S3-compatible storage with zero egress fees",
+        url: "https://cloudflare.com/r2",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 10GB storage",
+        advantages: ["No egress fees", "S3-compatible API"],
+      },
+    ],
+    files: [],
+    dependencies: [{ name: "@vercel/blob" }, { name: "@aws-sdk/client-s3" }],
+  },
+  {
+    name: "Background Jobs",
+    slug: "background-jobs",
+    description:
+      "Serverless background job processing with Inngest. Event-driven workflows with automatic retries.",
+    category: "infrastructure",
+    tier: "freemium",
+    complexity: "intermediate",
+    tags: ["jobs", "queues", "inngest", "serverless", "events"],
+    alternatives: [
+      {
+        name: "Inngest",
+        description: "Event-driven background jobs with zero infrastructure",
+        url: "https://inngest.com",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 50k events/mo",
+        advantages: ["Zero infrastructure", "Built-in retries", "Local dev UI"],
+        recommended: true,
+      },
+      {
+        name: "Trigger.dev",
+        description: "Open-source background jobs, self-hostable",
+        url: "https://trigger.dev",
+        pricingTier: "freemium",
+        pricingNote: "Free tier available",
+        advantages: ["Open-source", "Self-hostable", "TypeScript-first"],
+      },
+      {
+        name: "QStash",
+        description: "HTTP-based message queue from Upstash",
+        url: "https://upstash.com/qstash",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 500 messages/day",
+        advantages: ["Simple HTTP API", "Works with any serverless"],
+      },
+    ],
+    files: [],
+    dependencies: [{ name: "inngest" }],
+  },
+  {
+    name: "Scheduled Tasks",
+    slug: "scheduled-tasks",
+    description:
+      "Cron jobs and scheduled tasks for serverless. Use Inngest for complex workflows or Vercel Cron for simple endpoints.",
+    category: "infrastructure",
+    tier: "freemium",
+    complexity: "intermediate",
+    tags: ["cron", "scheduled", "inngest", "vercel", "serverless"],
+    files: [],
+    dependencies: [{ name: "inngest" }],
+  },
+  {
+    name: "Webhooks",
+    slug: "webhooks",
+    description:
+      "Receive webhooks securely with signature verification. Includes Stripe and GitHub verification utilities.",
+    category: "infrastructure",
+    tier: "free",
+    complexity: "intermediate",
+    tags: ["webhooks", "signature", "stripe", "github", "security"],
+    files: [],
+    dependencies: [{ name: "@upstash/redis" }],
+  },
+  {
+    name: "Realtime",
+    slug: "realtime",
+    description:
+      "Real-time pub/sub updates using Pusher. Includes React hooks for subscribing to channels and events.",
+    category: "infrastructure",
+    tier: "freemium",
+    complexity: "intermediate",
+    tags: ["realtime", "pusher", "websocket", "pubsub", "channels"],
+    alternatives: [
+      {
+        name: "Pusher",
+        description: "Hosted real-time messaging with presence channels",
+        url: "https://pusher.com",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 200k messages/day",
+        advantages: ["Mature platform", "Presence channels", "Webhooks"],
+        recommended: true,
+      },
+      {
+        name: "Ably",
+        description: "Enterprise real-time messaging with higher free tier",
+        url: "https://ably.com",
+        pricingTier: "freemium",
+        pricingNote: "Free tier with 6M messages/mo",
+        advantages: ["Higher free tier limits", "Message history"],
+      },
+      {
+        name: "Supabase Realtime",
+        description: "Real-time database change streams",
+        url: "https://supabase.com/realtime",
+        pricingTier: "freemium",
+        pricingNote: "Included with Supabase free tier",
+        advantages: ["Database change streams", "Postgres integration"],
+      },
+      {
+        name: "PartyKit",
+        description: "Edge-native real-time, great for collaboration",
+        url: "https://partykit.io",
+        pricingTier: "freemium",
+        pricingNote: "Free tier available",
+        advantages: ["Edge-native", "Great for collaborative apps"],
+      },
+    ],
+    files: [],
+    dependencies: [{ name: "pusher" }, { name: "pusher-js" }],
+  },
 ];
 
 export function getPattern(category: string, slug: string): Pattern | undefined {
@@ -595,6 +745,7 @@ const categoryDisplayNames: Record<string, string> = {
   monitoring: "Monitoring",
   environment: "Environment",
   deployment: "Deployment",
+  infrastructure: "Infrastructure",
 };
 
 // Category descriptions (for homepage)
@@ -609,6 +760,7 @@ const categoryDescriptions: Record<string, string> = {
   monitoring: "Error tracking and observability",
   environment: "Type-safe configs and secrets management",
   deployment: "Docker, CI/CD, and production-ready configs",
+  infrastructure: "File uploads, background jobs, webhooks, and real-time features",
 };
 
 export interface CategoryGroup {
