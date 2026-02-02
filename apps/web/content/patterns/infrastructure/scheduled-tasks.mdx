@@ -1,0 +1,160 @@
+# Scheduled Tasks
+
+Cron jobs and scheduled tasks for serverless.
+
+## The Problem
+
+Serverless applications need scheduled tasks for:
+
+- Daily cleanups and maintenance
+- Weekly reports
+- Billing cycles
+- Data synchronization
+
+## The Solution
+
+Use Inngest scheduled functions for complex workflows or Vercel Cron for simple HTTP endpoints.
+
+## Files
+
+```typescript title="lib/inngest/scheduled.ts"
+import { inngest } from "./client";
+
+// Daily cleanup - runs at midnight UTC
+export const dailyCleanup = inngest.createFunction(
+  { id: "daily-cleanup", retries: 2 },
+  { cron: "0 0 * * *" },
+  async ({ step }) => {
+    // Clean up expired sessions
+    const sessions = await step.run("cleanup-sessions", async () => {
+      // await db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+      return { deleted: 0 };
+    });
+
+    // Clean up old logs
+    await step.run("cleanup-logs", async () => {
+      // await db.log.deleteMany({ where: { createdAt: { lt: thirtyDaysAgo } } });
+    });
+
+    return { sessionsDeleted: sessions.deleted };
+  }
+);
+
+// Weekly report - every Monday at 9am
+export const weeklyReport = inngest.createFunction(
+  { id: "weekly-report", retries: 3 },
+  { cron: "0 9 * * 1" },
+  async ({ step }) => {
+    const metrics = await step.run("calculate-metrics", async () => {
+      return { newUsers: 100, revenue: 5000 };
+    });
+
+    await step.run("send-report", async () => {
+      // await sendEmail({ to: 'admin@example.com', template: 'weekly', data: metrics });
+    });
+
+    return metrics;
+  }
+);
+
+// Monthly billing - 1st of each month
+export const monthlyBilling = inngest.createFunction(
+  { id: "monthly-billing", retries: 5 },
+  { cron: "0 0 1 * *" },
+  async ({ step }) => {
+    const subscriptions = await step.run("get-subscriptions", async () => {
+      // return await db.subscription.findMany({ where: { status: 'active' } });
+      return [{ id: "sub_1" }];
+    });
+
+    for (const sub of subscriptions) {
+      await step.run(`process-${sub.id}`, async () => {
+        // await stripe.subscriptions.update(sub.id);
+      });
+    }
+
+    return { processed: subscriptions.length };
+  }
+);
+
+export const scheduledFunctions = [dailyCleanup, weeklyReport, monthlyBilling];
+```
+
+```typescript title="app/api/cron/daily/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "edge";
+
+export async function GET(req: NextRequest) {
+  // Verify Vercel Cron secret
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    // Your daily task logic
+    console.log("Running daily cron job");
+
+    return NextResponse.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    return NextResponse.json({ error: "Cron job failed" }, { status: 500 });
+  }
+}
+```
+
+```json title="vercel.json"
+{
+  "crons": [
+    {
+      "path": "/api/cron/daily",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable              | Description            | Required              |
+| --------------------- | ---------------------- | --------------------- |
+| `INNGEST_SIGNING_KEY` | Inngest signing key    | Yes (for Inngest)     |
+| `CRON_SECRET`         | Secret for Vercel Cron | Yes (for Vercel Cron) |
+
+### Generate Cron Secret
+
+```bash
+openssl rand -base64 32
+```
+
+## Cron Expression Reference
+
+| Expression     | Description           |
+| -------------- | --------------------- |
+| `0 0 * * *`    | Every day at midnight |
+| `0 9 * * 1`    | Every Monday at 9am   |
+| `0 * * * *`    | Every hour            |
+| `0 0 1 * *`    | 1st of every month    |
+| `*/15 * * * *` | Every 15 minutes      |
+
+## Usage
+
+### Inngest vs Vercel Cron
+
+**Use Inngest when:**
+
+- You need multi-step workflows
+- Tasks may take longer than 10 seconds
+- You want automatic retries
+- You need to process items in batches
+
+**Use Vercel Cron when:**
+
+- Simple HTTP endpoint triggers
+- Task completes quickly (<10s)
+- No complex retry logic needed

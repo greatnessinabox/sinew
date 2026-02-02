@@ -1,0 +1,187 @@
+# Webhooks
+
+Receive webhooks securely with signature verification.
+
+## The Problem
+
+Receiving webhooks requires:
+
+- Signature verification to prevent spoofing
+- Idempotency to handle retries
+- Provider-specific implementations
+- Error handling and logging
+
+## The Solution
+
+Generic signature verification utilities with provider-specific implementations for Stripe, GitHub, and more. Uses Redis for idempotency tracking.
+
+## Files
+
+```typescript title="lib/webhooks/verify.ts"
+import crypto from "crypto";
+
+// Generic HMAC-SHA256 verification
+export function verifyHmacSha256(
+  payload: string,
+  signature: string,
+  secret: string
+): { valid: boolean; error?: string } {
+  try {
+    const expected = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+
+    const isValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+
+    return { valid: isValid };
+  } catch {
+    return { valid: false, error: "Verification failed" };
+  }
+}
+
+// Stripe signature verification
+export function verifyStripeSignature(
+  payload: string,
+  signature: string,
+  secret: string,
+  tolerance = 300
+): { valid: boolean; error?: string } {
+  const parts = signature.split(",").reduce(
+    (acc, part) => {
+      const [key, value] = part.split("=");
+      acc[key] = value;
+      return acc;
+    },
+    {} as Record<string, string>
+  );
+
+  const timestamp = parseInt(parts.t, 10);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (Math.abs(now - timestamp) > tolerance) {
+    return { valid: false, error: "Timestamp out of tolerance" };
+  }
+
+  const signedPayload = `${timestamp}.${payload}`;
+  const expected = crypto.createHmac("sha256", secret).update(signedPayload).digest("hex");
+
+  const isValid = parts.v1 === expected;
+  return { valid: isValid };
+}
+
+// GitHub signature verification
+export function verifyGitHubSignature(
+  payload: string,
+  signature: string,
+  secret: string
+): { valid: boolean } {
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(payload).digest("hex");
+
+  return { valid: signature === expected };
+}
+```
+
+```typescript title="lib/webhooks/idempotency.ts"
+import { Redis } from "@upstash/redis";
+
+const redis = Redis.fromEnv();
+const TTL = 60 * 60 * 24; // 24 hours
+
+export async function checkIdempotency(
+  provider: string,
+  eventId: string
+): Promise<{ isNew: boolean; processedAt?: number }> {
+  const key = `webhook:${provider}:${eventId}`;
+  const processed = await redis.get<number>(key);
+  return processed ? { isNew: false, processedAt: processed } : { isNew: true };
+}
+
+export async function markProcessed(provider: string, eventId: string) {
+  const key = `webhook:${provider}:${eventId}`;
+  await redis.set(key, Date.now(), { ex: TTL });
+}
+
+export async function processIdempotent<T>(
+  provider: string,
+  eventId: string,
+  processor: () => Promise<T>
+): Promise<{ result: T; wasProcessed: boolean }> {
+  const { isNew } = await checkIdempotency(provider, eventId);
+
+  if (!isNew) {
+    return { result: undefined as T, wasProcessed: true };
+  }
+
+  const result = await processor();
+  await markProcessed(provider, eventId);
+  return { result, wasProcessed: false };
+}
+```
+
+```typescript title="app/api/webhooks/stripe/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { verifyStripeSignature } from "@/lib/webhooks/verify";
+import { processIdempotent } from "@/lib/webhooks/idempotency";
+
+export async function POST(req: NextRequest) {
+  const signature = req.headers.get("stripe-signature");
+  if (!signature) {
+    return NextResponse.json({ error: "Missing signature" }, { status: 400 });
+  }
+
+  const payload = await req.text();
+  const secret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+  const verification = verifyStripeSignature(payload, signature, secret);
+  if (!verification.valid) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  const event = JSON.parse(payload);
+
+  const { wasProcessed } = await processIdempotent("stripe", event.id, async () => {
+    switch (event.type) {
+      case "checkout.session.completed":
+        // await handleCheckout(event.data.object);
+        break;
+      case "customer.subscription.updated":
+        // await handleSubscriptionUpdate(event.data.object);
+        break;
+    }
+  });
+
+  return NextResponse.json({ received: true, processed: !wasProcessed });
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                   | Description           | Required              |
+| -------------------------- | --------------------- | --------------------- |
+| `STRIPE_WEBHOOK_SECRET`    | Stripe webhook secret | Yes (for Stripe)      |
+| `GITHUB_WEBHOOK_SECRET`    | GitHub webhook secret | Yes (for GitHub)      |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis URL     | Yes (for idempotency) |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis token   | Yes (for idempotency) |
+
+## Usage
+
+### Register Custom Handler
+
+```typescript
+import { registerHandler } from "@/lib/webhooks/handlers";
+
+registerHandler("stripe", "invoice.paid", async (ctx) => {
+  const invoice = ctx.payload as { id: string };
+  await db.invoice.update({
+    where: { stripeId: invoice.id },
+    data: { status: "paid" },
+  });
+});
+```
+
+### Testing Locally
+
+```bash
+# Stripe CLI for local testing
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+```

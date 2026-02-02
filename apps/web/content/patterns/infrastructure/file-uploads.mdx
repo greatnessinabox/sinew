@@ -1,0 +1,192 @@
+# File Uploads
+
+Serverless file uploads with presigned URLs.
+
+## The Problem
+
+Handling file uploads in serverless requires:
+
+- Direct uploads to storage (not through your server)
+- File type and size validation
+- Support for multiple providers
+- Presigned URLs for secure uploads
+
+## The Solution
+
+Use Vercel Blob for simple deployments or AWS S3 with presigned URLs for more control. Includes validation and a React hook for uploads.
+
+## Files
+
+```typescript title="lib/uploads/config.ts"
+export const uploadConfig = {
+  maxFileSize: 10 * 1024 * 1024, // 10MB
+  allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"],
+  blockedExtensions: [".exe", ".bat", ".sh", ".php"],
+};
+
+export function validateFile(
+  filename: string,
+  contentType: string,
+  size: number
+): { valid: boolean; error?: string } {
+  if (size > uploadConfig.maxFileSize) {
+    return { valid: false, error: "File too large" };
+  }
+
+  if (!uploadConfig.allowedMimeTypes.includes(contentType)) {
+    return { valid: false, error: `File type ${contentType} not allowed` };
+  }
+
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  if (uploadConfig.blockedExtensions.includes(ext)) {
+    return { valid: false, error: `Extension ${ext} not allowed` };
+  }
+
+  return { valid: true };
+}
+```
+
+```typescript title="lib/uploads/s3.ts"
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { validateFile } from "./config";
+
+const s3 = new S3Client({
+  region: process.env.AWS_REGION ?? "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+export async function getPresignedUploadUrl(filename: string, contentType: string, size: number) {
+  const validation = validateFile(filename, contentType, size);
+  if (!validation.valid) throw new Error(validation.error);
+
+  const key = `uploads/${Date.now()}-${filename}`;
+
+  const command = new PutObjectCommand({
+    Bucket: process.env.AWS_S3_BUCKET!,
+    Key: key,
+    ContentType: contentType,
+    ContentLength: size,
+  });
+
+  const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
+
+  return {
+    uploadUrl,
+    publicUrl: `https://${process.env.AWS_S3_BUCKET}.s3.amazonaws.com/${key}`,
+    key,
+  };
+}
+```
+
+```typescript title="app/api/upload/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { getPresignedUploadUrl } from "@/lib/uploads/s3";
+
+export async function POST(req: NextRequest) {
+  const { filename, contentType, size } = await req.json();
+
+  if (!filename || !contentType || !size) {
+    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  }
+
+  const result = await getPresignedUploadUrl(filename, contentType, size);
+  return NextResponse.json(result);
+}
+```
+
+```typescript title="hooks/use-file-upload.ts"
+"use client";
+
+import { useState, useCallback } from "react";
+
+export function useFileUpload() {
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const uploadFile = useCallback(async (file: File) => {
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      // Get presigned URL
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          size: file.size,
+        }),
+      });
+
+      const { uploadUrl, publicUrl, key } = await response.json();
+
+      // Upload directly to S3
+      await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+
+      return { url: publicUrl, key };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  }, []);
+
+  return { uploadFile, isUploading, error };
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                | Description           | Required       |
+| ----------------------- | --------------------- | -------------- |
+| `UPLOAD_PROVIDER`       | "vercel-blob" or "s3" | No             |
+| `AWS_REGION`            | AWS region            | Yes (for S3)   |
+| `AWS_ACCESS_KEY_ID`     | AWS access key        | Yes (for S3)   |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret            | Yes (for S3)   |
+| `AWS_S3_BUCKET`         | S3 bucket name        | Yes (for S3)   |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob token     | Yes (for Blob) |
+
+## Usage
+
+```tsx
+"use client";
+
+import { useFileUpload } from "@/hooks/use-file-upload";
+
+export function UploadForm() {
+  const { uploadFile, isUploading, error } = useFileUpload();
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const result = await uploadFile(file);
+      if (result) console.log("Uploaded:", result.url);
+    }
+  };
+
+  return (
+    <div>
+      <input type="file" onChange={handleUpload} disabled={isUploading} />
+      {error && <p className="text-red-500">{error}</p>}
+    </div>
+  );
+}
+```
+
+## Alternatives
+
+- **Vercel Blob** - Zero-config on Vercel
+- **Uploadthing** - Type-safe file routes with React components
+- **Cloudflare R2** - S3-compatible with no egress fees
