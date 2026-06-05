@@ -18,6 +18,7 @@
     "release": "turbo run build --filter=@sinew/* && changeset publish"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
     "@changesets/cli": "^2.29.8",
     "@commitlint/cli": "^20.3.1",
     "@commitlint/config-conventional": "^20.3.1",
