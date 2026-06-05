@@ -50,12 +50,17 @@ export function StreamingText({ text, isStreaming = false, className = "" }: Str
 "use client";
 
 import { useRef, useEffect } from "react";
-import type { Message } from "ai";
+import type { UIMessage } from "ai";
 import { StreamingText } from "./streaming-text";
 
 interface ChatMessagesProps {
-  messages: Message[];
+  messages: UIMessage[];
   isLoading?: boolean;
+}
+
+// v5+ UIMessages hold their text in a parts array, not a content string.
+function messageText(message: UIMessage): string {
+  return message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
 export function ChatMessages({ messages, isLoading = false }: ChatMessagesProps) {
@@ -70,6 +75,7 @@ export function ChatMessages({ messages, isLoading = false }: ChatMessagesProps)
       {messages.map((message, index) => {
         const isUser = message.role === "user";
         const isLastAssistant = !isUser && index === messages.length - 1 && isLoading;
+        const text = messageText(message);
 
         return (
           <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -79,9 +85,9 @@ export function ChatMessages({ messages, isLoading = false }: ChatMessagesProps)
               }`}
             >
               {isLastAssistant ? (
-                <StreamingText text={message.content} isStreaming={true} />
+                <StreamingText text={text} isStreaming={true} />
               ) : (
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <p className="whitespace-pre-wrap">{text}</p>
               )}
             </div>
           </div>
@@ -185,8 +191,9 @@ export function ChatInput({
 ```typescript title="hooks/use-ai-chat.ts"
 "use client";
 
-import { useChat as useVercelChat } from "ai/react";
-import { useCallback, useMemo } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+import { useCallback, useMemo, useState } from "react";
 
 export function useAIChat({
   apiEndpoint = "/api/chat",
@@ -197,18 +204,33 @@ export function useAIChat({
   sessionId?: string;
   systemPrompt?: string;
 } = {}) {
-  const chat = useVercelChat({
-    api: apiEndpoint,
-    body: { sessionId, systemPrompt },
+  // useChat no longer manages input state in v5+ — own it here.
+  const [input, setInput] = useState("");
+
+  const chat = useChat({
+    transport: new DefaultChatTransport({
+      api: apiEndpoint,
+      body: { sessionId, systemPrompt },
+    }),
   });
+
+  const isLoading = chat.status === "submitted" || chat.status === "streaming";
+
+  const handleSubmit = useCallback(() => {
+    const text = input.trim();
+    if (!text || isLoading) return;
+    chat.sendMessage({ text });
+    setInput("");
+  }, [chat, input, isLoading]);
 
   const clearChat = useCallback(() => {
     chat.setMessages([]);
+    setInput("");
   }, [chat]);
 
   const isEmpty = useMemo(() => chat.messages.length === 0, [chat.messages.length]);
 
-  return { ...chat, clearChat, isEmpty };
+  return { ...chat, input, setInput, handleSubmit, isLoading, clearChat, isEmpty };
 }
 ```
 

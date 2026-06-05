@@ -19,11 +19,12 @@ Use the Vercel AI SDK's tool calling with Zod schemas for type-safe parameter va
 
 ```typescript title="lib/ai/tools.ts"
 import { tool } from "ai";
+import { evaluate } from "mathjs";
 import { z } from "zod";
 
 export const weatherTool = tool({
   description: "Get the current weather in a location",
-  parameters: z.object({
+  inputSchema: z.object({
     location: z.string().describe("The city and country"),
     unit: z.enum(["celsius", "fahrenheit"]).default("celsius"),
   }),
@@ -40,7 +41,7 @@ export const weatherTool = tool({
 
 export const searchTool = tool({
   description: "Search the web for information",
-  parameters: z.object({
+  inputSchema: z.object({
     query: z.string().describe("The search query"),
     maxResults: z.number().optional().default(5),
   }),
@@ -55,13 +56,17 @@ export const searchTool = tool({
 
 export const calculatorTool = tool({
   description: "Perform mathematical calculations",
-  parameters: z.object({
+  inputSchema: z.object({
     expression: z.string().describe("Math expression to evaluate"),
   }),
   execute: async ({ expression }) => {
-    const sanitized = expression.replace(/[^0-9+\-*/().\\s]/g, "");
-    const result = Function(`"use strict"; return (${sanitized})`)();
-    return { expression, result };
+    // mathjs.evaluate parses a math grammar instead of running JS, so
+    // model/user-supplied input can't reach the runtime like eval would.
+    try {
+      return { expression, result: evaluate(expression) };
+    } catch {
+      return { expression, error: "Invalid expression" };
+    }
   },
 });
 
@@ -70,12 +75,17 @@ export const tools = {
   search: searchTool,
   calculator: calculatorTool,
 };
+
+export type ToolName = keyof typeof tools;
 ```
 
 ```typescript title="lib/ai/agent.ts"
-import { streamText, generateText, CoreMessage } from "ai";
-import { getModel } from "./providers";
+import { streamText, generateText, stepCountIs, type ModelMessage } from "ai";
+import { openai } from "@ai-sdk/openai";
 import { tools, type ToolName } from "./tools";
+
+// Uses OpenAI by default. Swap this for your own provider/model selection.
+const model = openai("gpt-4o");
 
 export interface AgentConfig {
   systemPrompt: string;
@@ -83,23 +93,28 @@ export interface AgentConfig {
   maxSteps?: number;
 }
 
+function pickTools(names: ToolName[]) {
+  return Object.fromEntries(names.map((name) => [name, tools[name]] as const)) as Pick<
+    typeof tools,
+    ToolName
+  >;
+}
+
 export async function runAgent({
   config,
   messages,
 }: {
   config: AgentConfig;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
 }) {
   const { systemPrompt, availableTools, maxSteps = 5 } = config;
 
-  const enabledTools = Object.fromEntries(availableTools.map((name) => [name, tools[name]]));
-
   const result = await generateText({
-    model: getModel("default"),
+    model,
     system: systemPrompt,
     messages,
-    tools: enabledTools,
-    maxSteps,
+    tools: pickTools(availableTools),
+    stopWhen: stepCountIs(maxSteps),
   });
 
   return {
@@ -107,6 +122,24 @@ export async function runAgent({
     toolCalls: result.toolCalls,
     toolResults: result.toolResults,
   };
+}
+
+export async function streamAgent({
+  config,
+  messages,
+}: {
+  config: AgentConfig;
+  messages: ModelMessage[];
+}) {
+  const { systemPrompt, availableTools, maxSteps = 5 } = config;
+
+  return streamText({
+    model,
+    system: systemPrompt,
+    messages,
+    tools: pickTools(availableTools),
+    stopWhen: stepCountIs(maxSteps),
+  });
 }
 
 export const agentConfigs: Record<string, AgentConfig> = {
@@ -139,7 +172,7 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await streamAgent({ config, messages });
-  return result.toDataStreamResponse();
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -191,7 +224,7 @@ import { z } from "zod";
 
 export const customTool = tool({
   description: "Your custom tool description",
-  parameters: z.object({
+  inputSchema: z.object({
     param1: z.string(),
     param2: z.number().optional(),
   }),

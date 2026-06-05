@@ -15,6 +15,7 @@ export const aiToolCalling: Pattern = {
       {
         path: "lib/ai/tools.ts",
         content: `import { tool } from "ai";
+import { evaluate } from "mathjs";
 import { z } from "zod";
 
 // Define reusable tools for AI agents
@@ -22,7 +23,7 @@ import { z } from "zod";
 
 export const weatherTool = tool({
   description: "Get the current weather in a location",
-  parameters: z.object({
+  inputSchema: z.object({
     location: z.string().describe("The city and country, e.g., London, UK"),
     unit: z
       .enum(["celsius", "fahrenheit"])
@@ -45,7 +46,7 @@ export const weatherTool = tool({
 
 export const searchTool = tool({
   description: "Search the web for information",
-  parameters: z.object({
+  inputSchema: z.object({
     query: z.string().describe("The search query"),
     maxResults: z.number().optional().default(5),
   }),
@@ -66,16 +67,17 @@ export const searchTool = tool({
 
 export const calculatorTool = tool({
   description: "Perform mathematical calculations",
-  parameters: z.object({
+  inputSchema: z.object({
     expression: z
       .string()
       .describe("Mathematical expression to evaluate, e.g., '2 + 2 * 3'"),
   }),
   execute: async ({ expression }) => {
     try {
-      // Safe math evaluation (consider using mathjs for production)
-      const sanitized = expression.replace(/[^0-9+\\-*/().\\s]/g, "");
-      const result = Function(\`"use strict"; return (\${sanitized})\`)();
+      // mathjs.evaluate parses a math grammar — it does not run arbitrary
+      // JS, so model/user-supplied expressions can't reach the runtime the
+      // way Function()/eval would.
+      const result = evaluate(expression);
       return { expression, result };
     } catch {
       return { expression, error: "Invalid expression" };
@@ -85,9 +87,12 @@ export const calculatorTool = tool({
 
 export const databaseQueryTool = tool({
   description: "Query the database for information",
-  parameters: z.object({
+  inputSchema: z.object({
     table: z.enum(["users", "orders", "products"]).describe("Table to query"),
-    filter: z.record(z.string()).optional().describe("Filter conditions"),
+    filter: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe("Filter conditions"),
     limit: z.number().optional().default(10),
   }),
   execute: async ({ table, filter, limit }) => {
@@ -115,14 +120,24 @@ export type ToolName = keyof typeof tools;
       },
       {
         path: "lib/ai/agent.ts",
-        content: `import { streamText, generateText, CoreMessage } from "ai";
-import { getModel } from "./providers";
+        content: `import { streamText, generateText, stepCountIs, type ModelMessage } from "ai";
+import { openai } from "@ai-sdk/openai";
 import { tools, type ToolName } from "./tools";
+
+// Uses OpenAI by default. Swap this for your own provider/model selection.
+const model = openai("gpt-4o");
 
 export interface AgentConfig {
   systemPrompt: string;
   availableTools: ToolName[];
   maxSteps?: number;
+}
+
+// Pick the enabled tools out of the registry, preserving their types.
+function pickTools(names: ToolName[]) {
+  return Object.fromEntries(
+    names.map((name) => [name, tools[name]] as const)
+  ) as Pick<typeof tools, ToolName>;
 }
 
 // Run agent with tool calling (non-streaming)
@@ -131,23 +146,17 @@ export async function runAgent({
   messages,
 }: {
   config: AgentConfig;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
 }) {
   const { systemPrompt, availableTools, maxSteps = 5 } = config;
-
-  // Filter tools based on config
-  const enabledTools = Object.fromEntries(
-    availableTools.map((name) => [name, tools[name]])
-  );
-
-  const model = getModel("default");
 
   const result = await generateText({
     model,
     system: systemPrompt,
     messages,
-    tools: enabledTools,
-    maxSteps,
+    tools: pickTools(availableTools),
+    // Allow the model to call tools and then continue, up to maxSteps.
+    stopWhen: stepCountIs(maxSteps),
   });
 
   return {
@@ -164,22 +173,16 @@ export async function streamAgent({
   messages,
 }: {
   config: AgentConfig;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
 }) {
   const { systemPrompt, availableTools, maxSteps = 5 } = config;
-
-  const enabledTools = Object.fromEntries(
-    availableTools.map((name) => [name, tools[name]])
-  );
-
-  const model = getModel("default");
 
   const result = streamText({
     model,
     system: systemPrompt,
     messages,
-    tools: enabledTools,
-    maxSteps,
+    tools: pickTools(availableTools),
+    stopWhen: stepCountIs(maxSteps),
   });
 
   return result;
@@ -219,7 +222,7 @@ Always cite your sources and provide balanced perspectives.\`,
         path: "app/api/agent/route.ts",
         content: `import { NextRequest } from "next/server";
 import { streamAgent, agentConfigs } from "@/lib/ai/agent";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 
 export const runtime = "edge";
 
@@ -244,10 +247,10 @@ export async function POST(req: NextRequest) {
 
     const result = await streamAgent({
       config,
-      messages: messages as CoreMessage[],
+      messages: messages as ModelMessage[],
     });
 
-    return result.toDataStreamResponse();
+    return result.toUIMessageStreamResponse();
   } catch (error) {
     console.error("Agent error:", error);
     return Response.json(
@@ -276,10 +279,11 @@ OPENAI_API_KEY="sk-..."
   },
   dependencies: {
     nextjs: [
-      { name: "ai" },
-      { name: "@ai-sdk/openai" },
-      { name: "@ai-sdk/anthropic" },
-      { name: "zod" },
+      { name: "ai", version: "^6.0.0" },
+      { name: "@ai-sdk/openai", version: "^3.0.0" },
+      { name: "@ai-sdk/anthropic", version: "^3.0.0" },
+      { name: "zod", version: "^4.0.0" },
+      { name: "mathjs", version: "^15.0.0" },
     ],
     remix: [],
     sveltekit: [],

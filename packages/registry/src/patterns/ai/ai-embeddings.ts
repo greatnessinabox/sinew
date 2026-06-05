@@ -79,7 +79,8 @@ export async function generateEmbeddings(
   return embeddings;
 }
 
-// Chunk text for embedding (handles long documents)
+// Chunk text for embedding (handles long documents).
+// maxChunkSize and overlap are measured in characters.
 export function chunkText(
   text: string,
   options: {
@@ -90,38 +91,48 @@ export function chunkText(
   const { maxChunkSize = 1000, overlap = 200 } = options;
   const chunks: string[] = [];
 
-  // Split by paragraphs first
-  const paragraphs = text.split(/\\n\\n+/);
-  let currentChunk = "";
+  // Tail of a chunk to prepend to the next one, so context isn't lost at
+  // boundaries. Cut on a word boundary within the last \`overlap\` characters.
+  const overlapTail = (chunk: string): string => {
+    if (overlap <= 0 || chunk.length <= overlap) return chunk;
+    const tail = chunk.slice(-overlap);
+    const firstSpace = tail.indexOf(" ");
+    return firstSpace === -1 ? tail : tail.slice(firstSpace + 1);
+  };
 
-  for (const paragraph of paragraphs) {
-    if ((currentChunk + paragraph).length <= maxChunkSize) {
-      currentChunk += (currentChunk ? "\\n\\n" : "") + paragraph;
+  // Flush the current chunk and start a new one seeded with the overlap tail.
+  let currentChunk = "";
+  const flush = () => {
+    if (!currentChunk) return;
+    chunks.push(currentChunk);
+    currentChunk = overlapTail(currentChunk);
+  };
+
+  // Append a unit (paragraph or sentence) to the current chunk, flushing first
+  // if it would overflow.
+  const append = (unit: string, separator: string) => {
+    const candidate = currentChunk ? currentChunk + separator + unit : unit;
+    if (candidate.length <= maxChunkSize) {
+      currentChunk = candidate;
     } else {
-      if (currentChunk) {
-        chunks.push(currentChunk);
-        // Keep overlap from previous chunk
-        const words = currentChunk.split(" ");
-        const overlapWords = words.slice(-Math.floor(overlap / 5));
-        currentChunk = overlapWords.join(" ") + "\\n\\n" + paragraph;
-      } else {
-        // Paragraph is too long, split by sentences
-        const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
-        for (const sentence of sentences) {
-          if ((currentChunk + sentence).length <= maxChunkSize) {
-            currentChunk += sentence;
-          } else {
-            if (currentChunk) chunks.push(currentChunk);
-            currentChunk = sentence;
-          }
-        }
+      flush();
+      currentChunk = currentChunk ? currentChunk + separator + unit : unit;
+    }
+  };
+
+  for (const paragraph of text.split(/\\n\\n+/)) {
+    if (paragraph.length <= maxChunkSize) {
+      append(paragraph, "\\n\\n");
+    } else {
+      // Paragraph alone exceeds the limit — break it into sentences.
+      const sentences = paragraph.match(/[^.!?]+[.!?]+/g) ?? [paragraph];
+      for (const sentence of sentences) {
+        append(sentence.trim(), " ");
       }
     }
   }
 
-  if (currentChunk) {
-    chunks.push(currentChunk);
-  }
+  if (currentChunk) chunks.push(currentChunk);
 
   return chunks;
 }
@@ -211,7 +222,7 @@ export async function search(
     id: r.id as string,
     score: r.score,
     content: (r.metadata?.content as string) || "",
-    metadata: r.metadata as Record<string, unknown>,
+    metadata: r.metadata as Record<string, unknown> | undefined,
   }));
 }
 
@@ -234,10 +245,12 @@ export async function getIndexStats() {
       {
         path: "lib/ai/rag.ts",
         content: `import { streamText, generateText } from "ai";
-import { getModel } from "./providers";
+import { openai } from "@ai-sdk/openai";
 import { search } from "./vector-store";
 
 // RAG (Retrieval-Augmented Generation) utilities
+// Uses OpenAI by default. Swap this for your own provider/model selection.
+const model = openai("gpt-4o");
 
 export interface RAGOptions {
   topK?: number;
@@ -266,8 +279,6 @@ If the context doesn't contain relevant information, say so.
 
 Context:
 \${context}\`;
-
-  const model = getModel("default");
 
   const { text } = await generateText({
     model,
@@ -301,8 +312,6 @@ Cite sources using [1], [2], etc. when referencing the context.
 
 Context:
 \${context}\`;
-
-  const model = getModel("default");
 
   const result = streamText({
     model,
@@ -363,7 +372,11 @@ UPSTASH_VECTOR_REST_TOKEN="your-token"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "ai" }, { name: "@ai-sdk/openai" }, { name: "@upstash/vector" }],
+    nextjs: [
+      { name: "ai", version: "^6.0.0" },
+      { name: "@ai-sdk/openai", version: "^3.0.0" },
+      { name: "@upstash/vector", version: "^1.2.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],

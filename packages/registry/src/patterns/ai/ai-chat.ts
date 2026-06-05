@@ -68,7 +68,7 @@ export const models = {
   openai: {
     default: openai("gpt-4o"),
     fast: openai("gpt-4o-mini"),
-    reasoning: openai("o1-preview"),
+    reasoning: openai("o1"),
   },
   anthropic: {
     default: anthropic("claude-sonnet-4-20250514"),
@@ -97,7 +97,7 @@ export function getModel(type: ModelType = "default") {
       },
       {
         path: "lib/ai/chat.ts",
-        content: `import { streamText, generateText, CoreMessage } from "ai";
+        content: `import { streamText, generateText, type ModelMessage } from "ai";
 import { Redis } from "@upstash/redis";
 import { getModel, type ModelType } from "./providers";
 
@@ -107,28 +107,28 @@ const redis = Redis.fromEnv();
 export interface ChatSession {
   id: string;
   userId: string;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   createdAt: number;
   updatedAt: number;
 }
 
-// Store conversation history in Redis
+// Store conversation history in Redis.
+// @upstash/redis serializes/deserializes JSON automatically, so store the
+// raw array — do not pre-stringify or it will be double-encoded.
 export async function saveMessages(
   sessionId: string,
-  messages: CoreMessage[]
+  messages: ModelMessage[]
 ): Promise<void> {
   const key = \`chat:\${sessionId}\`;
-  await redis.set(key, JSON.stringify(messages));
-  // Expire after 24 hours of inactivity
-  await redis.expire(key, 60 * 60 * 24);
+  // Set value and 24h expiry in one call so the key always has a TTL.
+  await redis.set(key, messages, { ex: 60 * 60 * 24 });
 }
 
 // Retrieve conversation history
-export async function getMessages(sessionId: string): Promise<CoreMessage[]> {
+export async function getMessages(sessionId: string): Promise<ModelMessage[]> {
   const key = \`chat:\${sessionId}\`;
-  const data = await redis.get<string>(key);
-  if (!data) return [];
-  return JSON.parse(data) as CoreMessage[];
+  const data = await redis.get<ModelMessage[]>(key);
+  return data ?? [];
 }
 
 // Stream chat response
@@ -147,7 +147,7 @@ export async function streamChat({
   const messages = await getMessages(sessionId);
 
   // Add user message
-  const userMessage: CoreMessage = { role: "user", content: message };
+  const userMessage: ModelMessage = { role: "user", content: message };
   messages.push(userMessage);
 
   const model = getModel(modelType);
@@ -157,9 +157,15 @@ export async function streamChat({
     system: systemPrompt ?? "You are a helpful assistant.",
     messages,
     onFinish: async ({ text }) => {
-      // Save assistant response to history
-      messages.push({ role: "assistant", content: text });
-      await saveMessages(sessionId, messages);
+      // Save assistant response to history. Wrap in try/catch: on edge
+      // runtimes a client abort can fire onFinish during teardown, and an
+      // unhandled rejection here would crash the worker.
+      try {
+        messages.push({ role: "assistant", content: text });
+        await saveMessages(sessionId, messages);
+      } catch (error) {
+        console.error("Failed to persist chat history:", error);
+      }
     },
   });
 
@@ -179,7 +185,7 @@ export async function chat({
   modelType?: ModelType;
 }) {
   const messages = await getMessages(sessionId);
-  const userMessage: CoreMessage = { role: "user", content: message };
+  const userMessage: ModelMessage = { role: "user", content: message };
   messages.push(userMessage);
 
   const model = getModel(modelType);
@@ -229,7 +235,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Return streaming response
-    return result.toDataStreamResponse();
+    return result.toUIMessageStreamResponse();
   } catch (error) {
     console.error("Chat error:", error);
     return Response.json(
@@ -244,13 +250,21 @@ export async function POST(req: NextRequest) {
         path: "components/chat-ui.tsx",
         content: `"use client";
 
-import { useChat } from "ai/react";
-import { useRef, useEffect } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport, type UIMessage } from "ai";
+import { useRef, useEffect, useState, type FormEvent } from "react";
 
 interface ChatUIProps {
   sessionId: string;
   systemPrompt?: string;
   placeholder?: string;
+}
+
+// Join the text parts of a UIMessage into a single string for rendering.
+function messageText(message: UIMessage): string {
+  return message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
 }
 
 export function ChatUI({
@@ -259,17 +273,42 @@ export function ChatUI({
   placeholder = "Type a message...",
 }: ChatUIProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // useChat no longer manages input state in v5+ — own it here.
+  const [input, setInput] = useState("");
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error } =
-    useChat({
+  const { messages, sendMessage, status, error } = useChat({
+    // The server persists history in Redis and rebuilds the prompt from the
+    // sessionId, so only send the latest user message instead of the full list.
+    transport: new DefaultChatTransport({
       api: "/api/chat",
-      body: { sessionId, systemPrompt },
-    });
+      prepareSendMessagesRequest: ({ messages, body }) => {
+        const last = messages[messages.length - 1];
+        return {
+          body: {
+            ...body,
+            sessionId,
+            systemPrompt,
+            message: last ? messageText(last) : "",
+          },
+        };
+      },
+    }),
+  });
+
+  const isLoading = status === "submitted" || status === "streaming";
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || isLoading) return;
+    sendMessage({ text });
+    setInput("");
+  };
 
   return (
     <div className="flex flex-col h-full max-w-2xl mx-auto">
@@ -294,7 +333,7 @@ export function ChatUI({
                   : "bg-gray-100 text-gray-900"
               }\`}
             >
-              <p className="whitespace-pre-wrap">{message.content}</p>
+              <p className="whitespace-pre-wrap">{messageText(message)}</p>
             </div>
           </div>
         ))}
@@ -325,7 +364,7 @@ export function ChatUI({
           <input
             type="text"
             value={input}
-            onChange={handleInputChange}
+            onChange={(e) => setInput(e.target.value)}
             placeholder={placeholder}
             disabled={isLoading}
             className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
@@ -369,10 +408,11 @@ UPSTASH_REDIS_REST_TOKEN="your-token"
   },
   dependencies: {
     nextjs: [
-      { name: "ai" },
-      { name: "@ai-sdk/openai" },
-      { name: "@ai-sdk/anthropic" },
-      { name: "@upstash/redis" },
+      { name: "ai", version: "^6.0.0" },
+      { name: "@ai-sdk/react", version: "^3.0.0" },
+      { name: "@ai-sdk/openai", version: "^3.0.0" },
+      { name: "@ai-sdk/anthropic", version: "^3.0.0" },
+      { name: "@upstash/redis", version: "^1.35.0" },
     ],
     remix: [],
     sveltekit: [],

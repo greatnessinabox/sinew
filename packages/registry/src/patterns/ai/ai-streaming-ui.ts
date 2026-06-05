@@ -54,13 +54,20 @@ export function StreamingText({
         content: `"use client";
 
 import { useRef, useEffect } from "react";
-import type { Message } from "ai";
+import type { UIMessage } from "ai";
 import { StreamingText } from "./streaming-text";
 
 interface ChatMessagesProps {
-  messages: Message[];
+  messages: UIMessage[];
   isLoading?: boolean;
   className?: string;
+}
+
+// v5+ UIMessages hold their text in a parts array, not a content string.
+function messageText(message: UIMessage): string {
+  return message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
 }
 
 export function ChatMessages({
@@ -81,6 +88,7 @@ export function ChatMessages({
         const isUser = message.role === "user";
         const isLastAssistant =
           !isUser && index === messages.length - 1 && isLoading;
+        const text = messageText(message);
 
         return (
           <div
@@ -95,12 +103,9 @@ export function ChatMessages({
               }\`}
             >
               {isLastAssistant ? (
-                <StreamingText
-                  text={message.content}
-                  isStreaming={true}
-                />
+                <StreamingText text={text} isStreaming={true} />
               ) : (
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <p className="whitespace-pre-wrap">{text}</p>
               )}
             </div>
           </div>
@@ -257,10 +262,11 @@ function LoadingSpinner() {
         path: "hooks/use-ai-chat.ts",
         content: `"use client";
 
-import { useChat as useVercelChat, type UseChatOptions } from "ai/react";
-import { useCallback, useMemo } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+import { useCallback, useMemo, useState } from "react";
 
-interface UseAIChatOptions extends Omit<UseChatOptions, "api"> {
+interface UseAIChatOptions {
   apiEndpoint?: string;
   sessionId?: string;
   systemPrompt?: string;
@@ -270,38 +276,36 @@ export function useAIChat({
   apiEndpoint = "/api/chat",
   sessionId,
   systemPrompt,
-  ...options
 }: UseAIChatOptions = {}) {
-  const chat = useVercelChat({
-    api: apiEndpoint,
-    body: {
-      sessionId,
-      systemPrompt,
-    },
-    ...options,
+  // useChat no longer manages input state in v5+ — own it here.
+  const [input, setInput] = useState("");
+
+  const chat = useChat({
+    transport: new DefaultChatTransport({
+      api: apiEndpoint,
+      body: { sessionId, systemPrompt },
+    }),
   });
+
+  const isLoading = chat.status === "submitted" || chat.status === "streaming";
+
+  // Submit the current input as a new user message.
+  const handleSubmit = useCallback(() => {
+    const text = input.trim();
+    if (!text || isLoading) return;
+    chat.sendMessage({ text });
+    setInput("");
+  }, [chat, input, isLoading]);
 
   // Clear chat and reset state
   const clearChat = useCallback(() => {
     chat.setMessages([]);
+    setInput("");
   }, [chat]);
 
-  // Retry last message
+  // Re-run generation for the last assistant message.
   const retryLastMessage = useCallback(() => {
-    const messages = chat.messages;
-    if (messages.length > 0) {
-      const lastUserMessage = [...messages]
-        .reverse()
-        .find((m) => m.role === "user");
-      if (lastUserMessage) {
-        // Remove last assistant message if exists
-        const newMessages = messages.filter(
-          (m) => m.id !== messages[messages.length - 1].id
-        );
-        chat.setMessages(newMessages);
-        chat.append(lastUserMessage);
-      }
-    }
+    if (chat.messages.length > 0) chat.regenerate();
   }, [chat]);
 
   // Helper to check if chat is empty
@@ -318,6 +322,10 @@ export function useAIChat({
 
   return {
     ...chat,
+    input,
+    setInput,
+    handleSubmit,
+    isLoading,
     clearChat,
     retryLastMessage,
     isEmpty,
@@ -417,7 +425,10 @@ export function ChatContainer({
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "ai" }],
+    nextjs: [
+      { name: "ai", version: "^6.0.0" },
+      { name: "@ai-sdk/react", version: "^3.0.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],

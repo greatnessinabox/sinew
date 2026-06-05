@@ -48,29 +48,37 @@ export const tierLimits = {
 
 export type Tier = keyof typeof tierLimits;
 
-// Request-based rate limiter (standard)
-const requestLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(10, "1 m"),
-  prefix: "ai:requests",
-  analytics: true,
-});
+const DAY_SECONDS = 86400;
+const tokenKey = (userId: string) => \`ai:tokens:\${userId}\`;
+
+// One request limiter per tier, created once at module load. Creating a new
+// Ratelimit per call would forfeit the SDK's ephemeral in-memory cache and
+// the analytics enabled here.
+const requestLimiters = new Map<Tier, Ratelimit>();
+
+function getRequestLimiter(tier: Tier): Ratelimit {
+  let limiter = requestLimiters.get(tier);
+  if (!limiter) {
+    limiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(
+        tierLimits[tier].requestsPerMinute,
+        "1 m"
+      ),
+      prefix: \`ai:requests:\${tier}\`,
+      analytics: true,
+    });
+    requestLimiters.set(tier, limiter);
+  }
+  return limiter;
+}
 
 // Check request rate limit
 export async function checkRequestLimit(
   userId: string,
   tier: Tier = "free"
 ): Promise<{ success: boolean; remaining: number; reset: number }> {
-  const limit = tierLimits[tier].requestsPerMinute;
-
-  // Create tier-specific limiter
-  const limiter = new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(limit, "1 m"),
-    prefix: \`ai:requests:\${tier}\`,
-  });
-
-  const result = await limiter.limit(userId);
+  const result = await getRequestLimiter(tier).limit(userId);
   return {
     success: result.success,
     remaining: result.remaining,
@@ -78,7 +86,10 @@ export async function checkRequestLimit(
   };
 }
 
-// Token bucket for daily limits
+// Token bucket for daily limits.
+// Reserves the estimated tokens atomically so concurrent requests can't both
+// read usage under the limit and both proceed (TOCTOU). Reconcile the actual
+// usage afterwards with reconcileTokenUsage.
 export async function checkTokenLimit(
   userId: string,
   requestedTokens: number,
@@ -88,45 +99,49 @@ export async function checkTokenLimit(
   remainingTokens: number;
   resetAt: number;
 }> {
-  const key = \`ai:tokens:\${userId}\`;
+  const key = tokenKey(userId);
   const dailyLimit = tierLimits[tier].tokensPerDay;
 
-  // Get current usage
-  const usage = await redis.get<number>(key) ?? 0;
-  const remaining = dailyLimit - usage;
-
-  if (requestedTokens > remaining) {
-    // Get TTL for reset time
-    const ttl = await redis.ttl(key);
-    return {
-      success: false,
-      remainingTokens: remaining,
-      resetAt: Date.now() + (ttl > 0 ? ttl * 1000 : 86400000),
-    };
-  }
-
-  // Consume tokens
+  // Consume first, then check the result. incrby returns the post-increment
+  // value, so the check + consume is a single atomic operation per key.
   const newUsage = await redis.incrby(key, requestedTokens);
 
-  // Set expiry if this is a new key (24 hours)
-  if (newUsage === requestedTokens) {
-    await redis.expire(key, 86400);
+  // Ensure the key always carries a TTL, but never extend an existing window.
+  await redis.expire(key, DAY_SECONDS, "NX");
+
+  const ttl = await redis.ttl(key);
+  const resetAt = Date.now() + (ttl > 0 ? ttl * 1000 : DAY_SECONDS * 1000);
+
+  if (newUsage > dailyLimit) {
+    // Over the limit — refund the reservation we just made.
+    await redis.incrby(key, -requestedTokens);
+    return {
+      success: false,
+      remainingTokens: Math.max(0, dailyLimit - (newUsage - requestedTokens)),
+      resetAt,
+    };
   }
 
   return {
     success: true,
     remainingTokens: dailyLimit - newUsage,
-    resetAt: Date.now() + (await redis.ttl(key)) * 1000,
+    resetAt,
   };
 }
 
-// Record actual token usage after completion
-export async function recordTokenUsage(
+// Reconcile a reservation once the real token count is known. Pass the same
+// estimate given to checkTokenLimit plus the actual usage; only the delta is
+// applied, so a request is never double-counted.
+export async function reconcileTokenUsage(
   userId: string,
+  estimatedTokens: number,
   actualTokens: number
 ): Promise<void> {
-  const key = \`ai:tokens:\${userId}\`;
-  await redis.incrby(key, actualTokens);
+  const delta = actualTokens - estimatedTokens;
+  if (delta === 0) return;
+  const key = tokenKey(userId);
+  await redis.incrby(key, delta);
+  await redis.expire(key, DAY_SECONDS, "NX");
 }
 
 // Get user's current usage stats
@@ -134,8 +149,7 @@ export async function getUsageStats(userId: string): Promise<{
   tokensUsedToday: number;
   requestsThisMinute: number;
 }> {
-  const tokenKey = \`ai:tokens:\${userId}\`;
-  const tokensUsed = await redis.get<number>(tokenKey) ?? 0;
+  const tokensUsed = (await redis.get<number>(tokenKey(userId))) ?? 0;
 
   return {
     tokensUsedToday: tokensUsed,
@@ -189,11 +203,12 @@ export function calculateCost(
 export async function recordUsage(record: UsageRecord): Promise<void> {
   const { userId, model, inputTokens, outputTokens, cost, timestamp } = record;
 
-  // Store in sorted set for time-series queries
+  // Store in sorted set for time-series queries. Keep the timestamp inside the
+  // member too so getUsageHistory can report when usage happened.
   const key = \`usage:\${userId}\`;
   await redis.zadd(key, {
     score: timestamp,
-    member: JSON.stringify({ model, inputTokens, outputTokens, cost }),
+    member: JSON.stringify({ model, inputTokens, outputTokens, cost, timestamp }),
   });
 
   // Aggregate daily stats
@@ -217,11 +232,12 @@ export async function getUsageHistory(
     byScore: true,
   });
 
-  return results.map((r) => ({
-    userId,
-    ...JSON.parse(r as string),
-    timestamp: 0, // Would need to store timestamp in the record
-  }));
+  // Members were stored with JSON.stringify. Depending on client config they
+  // come back as strings or already-parsed objects, so handle both.
+  return results.map((r) => {
+    const parsed = typeof r === "string" ? JSON.parse(r) : r;
+    return { userId, ...parsed } as UsageRecord;
+  });
 }
 
 // Get daily summary
@@ -321,7 +337,11 @@ export function withAIRateLimit(
       );
     }
 
-    // Estimate and check token limit
+    // Estimate and reserve tokens. checkTokenLimit consumes this estimate up
+    // front; once the real usage is known, call reconcileTokenUsage(userId,
+    // estimatedTokens, actualTokens) to correct the reservation.
+    // This is a rough char/4 heuristic — provide options.estimateTokens for a
+    // model-aware estimate. req.clone() avoids consuming the handler's body.
     let estimatedTokens = 1000; // Default estimate
     try {
       if (options.estimateTokens) {
@@ -427,7 +447,10 @@ UPSTASH_REDIS_REST_TOKEN="your-token"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "@upstash/ratelimit" }, { name: "@upstash/redis" }],
+    nextjs: [
+      { name: "@upstash/ratelimit", version: "^2.0.0" },
+      { name: "@upstash/redis", version: "^1.35.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],

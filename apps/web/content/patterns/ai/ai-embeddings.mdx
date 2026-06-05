@@ -39,25 +39,46 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   return embeddings;
 }
 
+// maxChunkSize and overlap are measured in characters.
 export function chunkText(
   text: string,
   options: { maxChunkSize?: number; overlap?: number } = {}
 ): string[] {
   const { maxChunkSize = 1000, overlap = 200 } = options;
   const chunks: string[] = [];
-  const paragraphs = text.split(/\n\n+/);
   let currentChunk = "";
 
-  for (const paragraph of paragraphs) {
-    if ((currentChunk + paragraph).length <= maxChunkSize) {
-      currentChunk += (currentChunk ? "\n\n" : "") + paragraph;
+  const overlapTail = (chunk: string): string => {
+    if (overlap <= 0 || chunk.length <= overlap) return chunk;
+    const tail = chunk.slice(-overlap);
+    const firstSpace = tail.indexOf(" ");
+    return firstSpace === -1 ? tail : tail.slice(firstSpace + 1);
+  };
+
+  const flush = () => {
+    if (!currentChunk) return;
+    chunks.push(currentChunk);
+    currentChunk = overlapTail(currentChunk);
+  };
+
+  const append = (unit: string, separator: string) => {
+    const candidate = currentChunk ? currentChunk + separator + unit : unit;
+    if (candidate.length <= maxChunkSize) {
+      currentChunk = candidate;
     } else {
-      if (currentChunk) {
-        chunks.push(currentChunk);
-        const words = currentChunk.split(" ");
-        currentChunk = words.slice(-Math.floor(overlap / 5)).join(" ");
+      flush();
+      currentChunk = currentChunk ? currentChunk + separator + unit : unit;
+    }
+  };
+
+  for (const paragraph of text.split(/\n\n+/)) {
+    if (paragraph.length <= maxChunkSize) {
+      append(paragraph, "\n\n");
+    } else {
+      const sentences = paragraph.match(/[^.!?]+[.!?]+/g) ?? [paragraph];
+      for (const sentence of sentences) {
+        append(sentence.trim(), " ");
       }
-      currentChunk += "\n\n" + paragraph;
     }
   }
 
@@ -113,8 +134,11 @@ export async function search(
 
 ```typescript title="lib/ai/rag.ts"
 import { generateText } from "ai";
-import { getModel } from "./providers";
+import { openai } from "@ai-sdk/openai";
 import { search } from "./vector-store";
+
+// Uses OpenAI by default. Swap this for your own provider/model selection.
+const model = openai("gpt-4o");
 
 export async function ragGenerate(query: string, options: { topK?: number } = {}) {
   const results = await search(query, options);
@@ -128,7 +152,7 @@ Context:
 ${context}`;
 
   const { text } = await generateText({
-    model: getModel("default"),
+    model,
     system: systemPrompt,
     prompt: query,
   });
