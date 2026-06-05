@@ -20,13 +20,18 @@ Use PostHog for product analytics with event tracking, user identification, and 
 ```typescript title="lib/analytics/client.ts"
 import posthog from "posthog-js";
 
+// Module-level guard so we don't re-init on Fast Refresh or repeated mounts.
+let hasInitialized = false;
+
 // Initialize PostHog (call once in your app)
 export function initAnalytics() {
   if (typeof window === "undefined") return;
-  if (posthog.__loaded) return;
+  if (hasInitialized) return;
+  hasInitialized = true;
 
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com",
+    // US cloud. Use https://eu.i.posthog.com for the EU region.
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
     capture_pageview: false, // We'll capture manually
     capture_pageleave: true,
     persistence: "localStorage+cookie",
@@ -118,7 +123,8 @@ let posthogServer: PostHog | null = null;
 export function getServerPostHog(): PostHog {
   if (!posthogServer) {
     posthogServer = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-      host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com",
+      // US cloud. Use https://eu.i.posthog.com for the EU region.
+      host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
       flushAt: 1,
       flushInterval: 0,
     });

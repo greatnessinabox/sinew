@@ -55,9 +55,10 @@ export const flagSchema = z.object({
   darkMode: z.boolean().default(true),
   betaFeatures: z.boolean().default(false),
 
-  // Percentage rollouts (0-100)
-  newCheckoutPercentage: z.number().min(0).max(100).default(0),
-  aiAssistantPercentage: z.number().min(0).max(100).default(0),
+  // Percentage rollouts (0-100). Coerced so string-encoded values written via
+  // redis-cli (rather than the SDK) still parse instead of throwing.
+  newCheckoutPercentage: z.coerce.number().min(0).max(100).default(0),
+  aiAssistantPercentage: z.coerce.number().min(0).max(100).default(0),
 
   // String variants for A/B testing
   pricingPageVariant: z.enum(["control", "variant-a", "variant-b"]).default("control"),
@@ -65,6 +66,11 @@ export const flagSchema = z.object({
 });
 
 export type Flags = z.infer<typeof flagSchema>;
+
+// A flag resolved for a specific user. Percentage (number) flags resolve to a
+// boolean (in rollout or not); everything else keeps its type.
+export type ResolvedFlag<T> = T extends number ? boolean : T;
+export type ResolvedFlags = { [K in keyof Flags]: ResolvedFlag<Flags[K]> };
 
 // Default flag values
 export const defaultFlags: Flags = flagSchema.parse({});
@@ -106,7 +112,12 @@ export const flagMetadata: Record<keyof Flags, { description: string; type: stri
         path: "lib/flags/provider.ts",
         content: `import { get } from "@vercel/edge-config";
 import { Redis } from "@upstash/redis";
-import { flagSchema, defaultFlags, type Flags } from "./config";
+import {
+  flagSchema,
+  defaultFlags,
+  type Flags,
+  type ResolvedFlags,
+} from "./config";
 
 // Choose provider based on environment
 const PROVIDER = process.env.FLAGS_PROVIDER ?? "edge-config";
@@ -122,7 +133,15 @@ export async function getFlags(): Promise<Flags> {
     if (PROVIDER === "edge-config") {
       const flags = await get<Partial<Flags>>("flags");
       return flagSchema.parse({ ...defaultFlags, ...flags });
-    } else if (redis) {
+    } else if (PROVIDER === "redis") {
+      if (!redis) {
+        // Misconfigured: redis provider selected but env vars are missing. Warn
+        // loudly instead of silently serving defaults.
+        console.warn(
+          "FLAGS_PROVIDER is 'redis' but UPSTASH_REDIS_REST_URL is not set; serving default flags"
+        );
+        return defaultFlags;
+      }
       const flags = await redis.hgetall<Partial<Flags>>("flags");
       return flagSchema.parse({ ...defaultFlags, ...flags });
     }
@@ -161,28 +180,30 @@ export function isInRollout(
   return userPercentage < percentage;
 }
 
-// Get flag with user targeting
+// Get flag with user targeting. Percentage flags resolve to a boolean
+// (in rollout or not), reflected in the ResolvedFlags return type so callers
+// don't treat a boolean as a number.
 export async function getFlagForUser<K extends keyof Flags>(
   key: K,
   userId?: string
-): Promise<Flags[K]> {
+): Promise<ResolvedFlags[K]> {
   const value = await getFlag(key);
 
   // Handle percentage rollouts
   if (typeof value === "number" && userId) {
-    return isInRollout(userId, value) as Flags[K];
+    return isInRollout(userId, value) as ResolvedFlags[K];
   }
 
-  return value;
+  return value as ResolvedFlags[K];
 }
 
-// Check multiple flags at once
+// Check multiple flags at once. Percentage flags are resolved to booleans.
 export async function checkFlags(
   keys: Array<keyof Flags>,
   userId?: string
-): Promise<Partial<Flags>> {
+): Promise<Partial<ResolvedFlags>> {
   const flags = await getFlags();
-  const result: Partial<Flags> = {};
+  const result: Partial<ResolvedFlags> = {};
 
   for (const key of keys) {
     const value = flags[key];
@@ -280,6 +301,9 @@ import { getFlags, getFlagForUser } from "@/lib/flags/provider";
 
 // Get all flags (public endpoint)
 export async function GET(req: NextRequest) {
+  // SECURITY: the x-user-id header is client-spoofable. Replace this with the id
+  // from your authenticated session (e.g. auth()/getServerSession) before using
+  // it for rollout targeting, otherwise users can opt themselves into any flag.
   const userId = req.headers.get("x-user-id") ?? undefined;
 
   try {
@@ -329,7 +353,11 @@ UPSTASH_REDIS_REST_TOKEN="your-token"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "@vercel/edge-config" }, { name: "@upstash/redis" }, { name: "zod" }],
+    nextjs: [
+      { name: "@vercel/edge-config", version: "^1.0.0" },
+      { name: "@upstash/redis", version: "^1.0.0" },
+      { name: "zod", version: "^4.0.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],

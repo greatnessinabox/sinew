@@ -27,9 +27,10 @@ export const flagSchema = z.object({
   darkMode: z.boolean().default(true),
   betaFeatures: z.boolean().default(false),
 
-  // Percentage rollouts (0-100)
-  newCheckoutPercentage: z.number().min(0).max(100).default(0),
-  aiAssistantPercentage: z.number().min(0).max(100).default(0),
+  // Percentage rollouts (0-100). Coerced so string-encoded values written via
+  // redis-cli (rather than the SDK) still parse instead of throwing.
+  newCheckoutPercentage: z.coerce.number().min(0).max(100).default(0),
+  aiAssistantPercentage: z.coerce.number().min(0).max(100).default(0),
 
   // String variants for A/B testing
   pricingPageVariant: z.enum(["control", "variant-a", "variant-b"]).default("control"),
@@ -37,6 +38,11 @@ export const flagSchema = z.object({
 });
 
 export type Flags = z.infer<typeof flagSchema>;
+
+// A flag resolved for a specific user. Percentage (number) flags resolve to a
+// boolean (in rollout or not); everything else keeps its type.
+export type ResolvedFlag<T> = T extends number ? boolean : T;
+export type ResolvedFlags = { [K in keyof Flags]: ResolvedFlag<Flags[K]> };
 
 // Default flag values
 export const defaultFlags: Flags = flagSchema.parse({});
@@ -56,7 +62,15 @@ export async function getFlags(): Promise<Flags> {
     if (PROVIDER === "edge-config") {
       const flags = await get<Partial<Flags>>("flags");
       return flagSchema.parse({ ...defaultFlags, ...flags });
-    } else if (redis) {
+    } else if (PROVIDER === "redis") {
+      if (!redis) {
+        // Misconfigured: redis selected but env vars missing. Warn instead of
+        // silently serving defaults.
+        console.warn(
+          "FLAGS_PROVIDER is 'redis' but UPSTASH_REDIS_REST_URL is not set; serving default flags"
+        );
+        return defaultFlags;
+      }
       const flags = await redis.hgetall<Partial<Flags>>("flags");
       return flagSchema.parse({ ...defaultFlags, ...flags });
     }

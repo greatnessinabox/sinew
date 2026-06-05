@@ -24,32 +24,29 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export interface ModerationCategories {
-  sexual: boolean;
-  hate: boolean;
-  harassment: boolean;
-  "self-harm": boolean;
-  violence: boolean;
-  "sexual/minors": boolean;
-  "hate/threatening": boolean;
-  "violence/graphic": boolean;
-}
+// Categories returned by the omni-moderation model. Derived from the SDK so the
+// shape (including `boolean | null` for the illicit categories) stays accurate.
+export type ModerationCategories = OpenAI.Moderation["categories"];
+export type ModerationCategoryScores = OpenAI.Moderation["category_scores"];
 
 export interface ModerationResult {
   flagged: boolean;
   categories: ModerationCategories;
-  categoryScores: Record<keyof ModerationCategories, number>;
+  categoryScores: ModerationCategoryScores;
 }
 
 // Moderate text content using OpenAI
 export async function moderateText(text: string): Promise<ModerationResult> {
-  const response = await openai.moderations.create({ input: text });
+  const response = await openai.moderations.create({
+    model: "omni-moderation-latest",
+    input: text,
+  });
   const result = response.results[0];
 
   return {
     flagged: result.flagged,
-    categories: result.categories as ModerationCategories,
-    categoryScores: result.category_scores as Record<keyof ModerationCategories, number>,
+    categories: result.categories,
+    categoryScores: result.category_scores,
   };
 }
 
@@ -68,14 +65,14 @@ export async function getViolations(text: string): Promise<{ category: string; s
     .filter(([, flagged]) => flagged)
     .map(([category]) => ({
       category,
-      score: result.categoryScores[category as keyof ModerationCategories],
+      score: result.categoryScores[category as keyof ModerationCategoryScores],
     }))
     .sort((a, b) => b.score - a.score);
 }
 ```
 
 ```typescript title="lib/moderation/policies.ts"
-import type { ModerationCategories } from "./text";
+import type { ModerationCategories, ModerationCategoryScores } from "./text";
 
 export interface ModerationPolicy {
   name: string;
@@ -127,8 +124,8 @@ export const policies: Record<string, ModerationPolicy> = {
 export function checkPolicy(
   policy: ModerationPolicy,
   categories: ModerationCategories,
-  scores: Record<keyof ModerationCategories, number>
-): { passed: boolean; violations: string[]; action: string } {
+  scores: ModerationCategoryScores
+): { passed: boolean; violations: string[]; action: ModerationPolicy["action"] | "allow" } {
   const violations: string[] = [];
 
   for (const [category, blocked] of Object.entries(policy.blockedCategories)) {
@@ -139,13 +136,18 @@ export function checkPolicy(
 
   if (policy.thresholds) {
     for (const [category, threshold] of Object.entries(policy.thresholds)) {
-      if (scores[category as keyof ModerationCategories] >= threshold) {
+      if (scores[category as keyof ModerationCategoryScores] >= threshold) {
         if (!violations.includes(category)) violations.push(category);
       }
     }
   }
 
-  return { passed: violations.length === 0, violations, action: policy.action };
+  // Clean content is allowed; only apply the policy's action on a violation.
+  return {
+    passed: violations.length === 0,
+    violations,
+    action: violations.length > 0 ? policy.action : "allow",
+  };
 }
 ```
 

@@ -54,10 +54,18 @@ export const search: Pattern = {
         path: "lib/search/client.ts",
         content: `import { MeiliSearch, Index } from "meilisearch";
 
-// Initialize Meilisearch client
-const client = new MeiliSearch({
+// Admin client (master/admin key) for indexing and settings. Never expose this
+// key to the browser.
+const adminClient = new MeiliSearch({
   host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
   apiKey: process.env.MEILISEARCH_API_KEY,
+});
+
+// Search client. Use a search-only key so query-time requests can't write or
+// read keys. Falls back to the admin key only if a search key is not set.
+const searchClient = new MeiliSearch({
+  host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
+  apiKey: process.env.MEILISEARCH_SEARCH_API_KEY || process.env.MEILISEARCH_API_KEY,
 });
 
 // Index names
@@ -69,23 +77,46 @@ export const INDEXES = {
 
 export type IndexName = (typeof INDEXES)[keyof typeof INDEXES];
 
-// Get index with type safety
+// Attributes a user may filter, sort, or facet on, per index. This is the
+// single source of truth shared with the indexing settings, and it is what
+// guards the public search endpoint against scraping unintended fields.
+export const indexAttributes: Record<
+  IndexName,
+  { filterable: string[]; sortable: string[] }
+> = {
+  products: {
+    filterable: ["category", "brand", "price", "inStock"],
+    sortable: ["price", "createdAt", "rating"],
+  },
+  articles: {
+    filterable: ["author", "tags", "publishedAt", "category"],
+    sortable: ["publishedAt", "views"],
+  },
+  users: {
+    filterable: ["role", "createdAt"],
+    sortable: ["createdAt", "name"],
+  },
+};
+
+// Hard caps to prevent unbounded scraping / DoS via large pagination.
+export const MAX_LIMIT = 50;
+export const MAX_OFFSET = 10_000;
+
+// Get index for admin/write operations.
 export function getIndex<T extends Record<string, unknown>>(
   name: IndexName
 ): Index<T> {
-  return client.index<T>(name);
+  return adminClient.index<T>(name);
 }
 
-// Search options
+// Search options accepted from callers. Highlight tags are fixed server-side so
+// clients can't inject arbitrary markup.
 export interface SearchOptions {
   limit?: number;
   offset?: number;
   filter?: string | string[];
   sort?: string[];
   facets?: string[];
-  attributesToHighlight?: string[];
-  highlightPreTag?: string;
-  highlightPostTag?: string;
 }
 
 // Search results
@@ -97,32 +128,72 @@ export interface SearchResults<T> {
   facetDistribution?: Record<string, Record<string, number>>;
 }
 
-// Generic search function
+// Pull the attribute names referenced in a filter expression (or array of them)
+// so they can be checked against the allowlist.
+function attributesInFilter(filter: string | string[]): string[] {
+  const expr = Array.isArray(filter) ? filter.join(" ") : filter;
+  return Array.from(expr.matchAll(/([a-zA-Z_][\\w.]*)\\s*(?:=|!=|>=|<=|>|<|IN|TO|EXISTS|CONTAINS|STARTS WITH)/gi)).map(
+    (m) => m[1]
+  );
+}
+
+// Validate and clamp untrusted search options against the per-index allowlist.
+// Anything outside the allowlist throws so the caller returns a 400 rather than
+// leaking or scanning unintended attributes.
+export function sanitizeSearchOptions(
+  index: IndexName,
+  options: SearchOptions
+): SearchOptions {
+  const allowed = indexAttributes[index];
+  const limit = Math.min(Math.max(1, options.limit ?? 20), MAX_LIMIT);
+  const offset = Math.min(Math.max(0, options.offset ?? 0), MAX_OFFSET);
+
+  if (options.filter) {
+    for (const attr of attributesInFilter(options.filter)) {
+      if (!allowed.filterable.includes(attr)) {
+        throw new Error(\`Filtering on "\${attr}" is not allowed\`);
+      }
+    }
+  }
+
+  if (options.sort) {
+    for (const entry of options.sort) {
+      const attr = entry.split(":")[0];
+      if (!allowed.sortable.includes(attr)) {
+        throw new Error(\`Sorting on "\${attr}" is not allowed\`);
+      }
+    }
+  }
+
+  const facets = options.facets?.filter((f) => allowed.filterable.includes(f));
+
+  return {
+    limit,
+    offset,
+    filter: options.filter,
+    sort: options.sort,
+    facets,
+  };
+}
+
+// Generic search function. Untrusted options are sanitized before they reach
+// Meilisearch.
 export async function search<T extends Record<string, unknown>>(
   index: IndexName,
   query: string,
   options: SearchOptions = {}
 ): Promise<SearchResults<T>> {
-  const {
-    limit = 20,
-    offset = 0,
-    filter,
-    sort,
-    facets,
-    attributesToHighlight,
-    highlightPreTag = "<mark>",
-    highlightPostTag = "</mark>",
-  } = options;
+  const safe = sanitizeSearchOptions(index, options);
 
-  const results = await getIndex<T>(index).search(query, {
-    limit,
-    offset,
-    filter,
-    sort,
-    facets,
-    attributesToHighlight,
-    highlightPreTag,
-    highlightPostTag,
+  const results = await searchClient.index<T>(index).search(query, {
+    limit: safe.limit,
+    offset: safe.offset,
+    filter: safe.filter,
+    sort: safe.sort,
+    facets: safe.facets,
+    attributesToHighlight: ["*"],
+    highlightPreTag: "<mark>",
+    highlightPostTag: "</mark>",
   });
 
   return {
@@ -136,13 +207,19 @@ export async function search<T extends Record<string, unknown>>(
 
 // Get Meilisearch client for admin operations
 export function getClient() {
-  return client;
+  return adminClient;
 }
 `,
       },
       {
         path: "lib/search/indexing.ts",
-        content: `import { getClient, getIndex, INDEXES, type IndexName } from "./client";
+        content: `import {
+  getClient,
+  getIndex,
+  indexAttributes,
+  INDEXES,
+  type IndexName,
+} from "./client";
 
 // Index settings type
 interface IndexSettings {
@@ -156,24 +233,26 @@ interface IndexSettings {
   distinctAttribute?: string;
 }
 
-// Default settings for each index
+// Default settings for each index. Filterable/sortable attributes come from the
+// shared allowlist in client.ts so the search endpoint and the index settings
+// can never drift apart.
 const indexSettings: Record<IndexName, IndexSettings> = {
   products: {
     searchableAttributes: ["name", "description", "category", "brand"],
-    filterableAttributes: ["category", "brand", "price", "inStock"],
-    sortableAttributes: ["price", "createdAt", "rating"],
+    filterableAttributes: indexAttributes.products.filterable,
+    sortableAttributes: indexAttributes.products.sortable,
     displayedAttributes: ["*"],
   },
   articles: {
     searchableAttributes: ["title", "content", "author", "tags"],
-    filterableAttributes: ["author", "tags", "publishedAt", "category"],
-    sortableAttributes: ["publishedAt", "views"],
+    filterableAttributes: indexAttributes.articles.filterable,
+    sortableAttributes: indexAttributes.articles.sortable,
     displayedAttributes: ["*"],
   },
   users: {
     searchableAttributes: ["name", "email", "bio"],
-    filterableAttributes: ["role", "createdAt"],
-    sortableAttributes: ["createdAt", "name"],
+    filterableAttributes: indexAttributes.users.filterable,
+    sortableAttributes: indexAttributes.users.sortable,
     displayedAttributes: ["id", "name", "email", "avatar", "role"],
   },
 };
@@ -183,8 +262,9 @@ export async function initializeIndex(name: IndexName): Promise<void> {
   const client = getClient();
   const settings = indexSettings[name];
 
-  // Create index if it doesn't exist
-  await client.createIndex(name, { primaryKey: "id" });
+  // createIndex enqueues an async task. waitTask() blocks until it finishes so
+  // the first run doesn't race settings/documents against index creation.
+  await client.createIndex(name, { primaryKey: "id" }).waitTask();
 
   // Update settings
   const index = getIndex(name);
@@ -492,37 +572,57 @@ export function SearchBox<T extends Record<string, unknown>>({
       {
         path: "app/api/search/route.ts",
         content: `import { NextRequest, NextResponse } from "next/server";
-import { search, type IndexName, INDEXES } from "@/lib/search/client";
+import { search, sanitizeSearchOptions, type IndexName, type SearchOptions, INDEXES } from "@/lib/search/client";
 
 export async function POST(req: NextRequest) {
+  let index: unknown;
+  let query: unknown;
+  let rawOptions: Record<string, unknown> = {};
+
   try {
-    const { index, query, ...options } = await req.json();
+    const body = await req.json();
+    index = body.index;
+    query = body.query;
+    rawOptions = body;
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
 
-    // Validate index
-    if (!Object.values(INDEXES).includes(index as IndexName)) {
-      return NextResponse.json(
-        { error: "Invalid index" },
-        { status: 400 }
-      );
-    }
+  // Validate index
+  if (!Object.values(INDEXES).includes(index as IndexName)) {
+    return NextResponse.json({ error: "Invalid index" }, { status: 400 });
+  }
 
-    // Validate query
-    if (typeof query !== "string") {
-      return NextResponse.json(
-        { error: "Query must be a string" },
-        { status: 400 }
-      );
-    }
+  // Validate query
+  if (typeof query !== "string") {
+    return NextResponse.json({ error: "Query must be a string" }, { status: 400 });
+  }
 
+  // Only forward known option keys. Never spread the raw body into Meilisearch.
+  const options: SearchOptions = {
+    limit: typeof rawOptions.limit === "number" ? rawOptions.limit : undefined,
+    offset: typeof rawOptions.offset === "number" ? rawOptions.offset : undefined,
+    filter: rawOptions.filter as SearchOptions["filter"],
+    sort: Array.isArray(rawOptions.sort) ? (rawOptions.sort as string[]) : undefined,
+    facets: Array.isArray(rawOptions.facets) ? (rawOptions.facets as string[]) : undefined,
+  };
+
+  // Reject disallowed filter/sort attributes with a 400 before hitting search.
+  try {
+    sanitizeSearchOptions(index as IndexName, options);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid search options" },
+      { status: 400 }
+    );
+  }
+
+  try {
     const results = await search(index as IndexName, query, options);
-
     return NextResponse.json(results);
   } catch (error) {
     console.error("Search error:", error);
-    return NextResponse.json(
-      { error: "Search failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Search failed" }, { status: 500 });
   }
 }
 `,
@@ -533,11 +633,14 @@ export async function POST(req: NextRequest) {
 # Self-hosted: http://localhost:7700
 # Cloud: https://ms-xxx.meilisearch.io
 MEILISEARCH_HOST="http://localhost:7700"
+
+# Admin/master key. Server-side only, used for indexing and settings.
+# Never expose this to the browser.
 MEILISEARCH_API_KEY="your-master-key"
 
-# For client-side (read-only search key)
-NEXT_PUBLIC_MEILISEARCH_HOST="http://localhost:7700"
-NEXT_PUBLIC_MEILISEARCH_SEARCH_KEY="your-search-key"
+# Search-only key. Used by the /api/search route for query-time requests so the
+# admin key is never used for searches. Generate one with the admin API.
+MEILISEARCH_SEARCH_API_KEY="your-search-key"
 `,
       },
     ],
@@ -547,7 +650,7 @@ NEXT_PUBLIC_MEILISEARCH_SEARCH_KEY="your-search-key"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "meilisearch" }],
+    nextjs: [{ name: "meilisearch", version: "^0.58.0" }],
     remix: [],
     sveltekit: [],
     nuxt: [],

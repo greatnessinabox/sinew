@@ -18,8 +18,8 @@ Use next-intl for type-safe internationalization with server component support. 
 ## Files
 
 ```typescript title="lib/i18n/config.ts"
-// Supported locales
-export const locales = ["en", "es", "fr", "de", "ja"] as const;
+// Supported locales. Add a locale here and ship a matching messages/<locale>.json.
+export const locales = ["en", "es"] as const;
 export type Locale = (typeof locales)[number];
 
 // Default locale
@@ -29,31 +29,23 @@ export const defaultLocale: Locale = "en";
 export const localeNames: Record<Locale, string> = {
   en: "English",
   es: "Español",
-  fr: "Français",
-  de: "Deutsch",
-  ja: "日本語",
 };
 
 // Currency formats
 export const currencyFormats: Record<Locale, { currency: string; locale: string }> = {
   en: { currency: "USD", locale: "en-US" },
   es: { currency: "EUR", locale: "es-ES" },
-  fr: { currency: "EUR", locale: "fr-FR" },
-  de: { currency: "EUR", locale: "de-DE" },
-  ja: { currency: "JPY", locale: "ja-JP" },
 };
 ```
 
 ```typescript title="lib/i18n/request.ts"
+import { hasLocale } from "next-intl";
 import { getRequestConfig } from "next-intl/server";
-import { locales, type Locale } from "./config";
+import { locales, defaultLocale } from "./config";
 
 export default getRequestConfig(async ({ requestLocale }) => {
-  let locale = await requestLocale;
-
-  if (!locale || !locales.includes(locale as Locale)) {
-    locale = "en";
-  }
+  const requested = await requestLocale;
+  const locale = hasLocale(locales, requested) ? requested : defaultLocale;
 
   return {
     locale,
@@ -75,6 +67,40 @@ export default createMiddleware({
 export const config = {
   matcher: ["/((?!api|_next|_vercel|.*\\..*).*)"],
 };
+```
+
+```tsx title="app/[locale]/layout.tsx"
+import { NextIntlClientProvider, hasLocale } from "next-intl";
+import { getMessages, setRequestLocale } from "next-intl/server";
+import { notFound } from "next/navigation";
+import { locales } from "@/lib/i18n/config";
+
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }));
+}
+
+export default async function LocaleLayout({
+  children,
+  params,
+}: {
+  children: React.ReactNode;
+  params: Promise<{ locale: string }>;
+}) {
+  // In Next.js 15+ params is a Promise and must be awaited.
+  const { locale } = await params;
+
+  // Validate the locale without an unsafe cast.
+  if (!hasLocale(locales, locale)) {
+    notFound();
+  }
+
+  // Enable static rendering for locale-aware server components.
+  setRequestLocale(locale);
+
+  const messages = await getMessages();
+
+  return <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>;
+}
 ```
 
 ```json title="messages/en.json"
@@ -229,8 +255,8 @@ export function ProductPrice({ price, date }) {
 ```
 messages/
 ├── en.json    # English
-├── es.json    # Spanish
-├── fr.json    # French
-├── de.json    # German
-└── ja.json    # Japanese
+└── es.json    # Spanish
 ```
+
+Add more locales by extending `locales` in `lib/i18n/config.ts` and shipping a matching
+`messages/<locale>.json` file.

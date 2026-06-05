@@ -4,7 +4,7 @@ export const contentModeration: Pattern = {
   name: "Content Moderation",
   slug: "content-moderation",
   description:
-    "AI-powered content moderation for user-generated content. Uses OpenAI's moderation API for text and supports image moderation policies.",
+    "AI-powered content moderation for user-generated content. Uses OpenAI's omni-moderation model for text with configurable, policy-based blocking.",
   category: "developer-experience",
   frameworks: ["nextjs"],
   tier: "freemium",
@@ -45,30 +45,22 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Moderation categories from OpenAI
-export interface ModerationCategories {
-  sexual: boolean;
-  hate: boolean;
-  harassment: boolean;
-  "self-harm": boolean;
-  "sexual/minors": boolean;
-  "hate/threatening": boolean;
-  "violence/graphic": boolean;
-  violence: boolean;
-  "harassment/threatening": boolean;
-  "self-harm/intent": boolean;
-  "self-harm/instructions": boolean;
-}
+// Categories returned by the omni-moderation model. Derived from the SDK so
+// the shape (including \`boolean | null\` for the illicit categories) stays
+// accurate without casts.
+export type ModerationCategories = OpenAI.Moderation["categories"];
+export type ModerationCategoryScores = OpenAI.Moderation["category_scores"];
 
 export interface ModerationResult {
   flagged: boolean;
   categories: ModerationCategories;
-  categoryScores: Record<keyof ModerationCategories, number>;
+  categoryScores: ModerationCategoryScores;
 }
 
 // Moderate text content using OpenAI
 export async function moderateText(text: string): Promise<ModerationResult> {
   const response = await openai.moderations.create({
+    model: "omni-moderation-latest",
     input: text,
   });
 
@@ -76,8 +68,8 @@ export async function moderateText(text: string): Promise<ModerationResult> {
 
   return {
     flagged: result.flagged,
-    categories: result.categories as ModerationCategories,
-    categoryScores: result.category_scores as Record<keyof ModerationCategories, number>,
+    categories: result.categories,
+    categoryScores: result.category_scores,
   };
 }
 
@@ -86,13 +78,14 @@ export async function moderateTexts(
   texts: string[]
 ): Promise<ModerationResult[]> {
   const response = await openai.moderations.create({
+    model: "omni-moderation-latest",
     input: texts,
   });
 
   return response.results.map((result) => ({
     flagged: result.flagged,
-    categories: result.categories as ModerationCategories,
-    categoryScores: result.category_scores as Record<keyof ModerationCategories, number>,
+    categories: result.categories,
+    categoryScores: result.category_scores,
   }));
 }
 
@@ -118,7 +111,7 @@ export async function getViolations(
     if (flagged) {
       violations.push({
         category,
-        score: result.categoryScores[category as keyof ModerationCategories],
+        score: result.categoryScores[category as keyof ModerationCategoryScores],
       });
     }
   }
@@ -129,7 +122,7 @@ export async function getViolations(
       },
       {
         path: "lib/moderation/policies.ts",
-        content: `import type { ModerationCategories } from "./text";
+        content: `import type { ModerationCategories, ModerationCategoryScores } from "./text";
 
 // Policy configuration for different content types
 export interface ModerationPolicy {
@@ -204,8 +197,8 @@ export type PolicyName = keyof typeof policies;
 export function checkPolicy(
   policy: ModerationPolicy,
   categories: ModerationCategories,
-  scores: Record<keyof ModerationCategories, number>
-): { passed: boolean; violations: string[]; action: ModerationPolicy["action"] } {
+  scores: ModerationCategoryScores
+): { passed: boolean; violations: string[]; action: ModerationPolicy["action"] | "allow" } {
   const violations: string[] = [];
 
   // Check blocked categories
@@ -218,7 +211,7 @@ export function checkPolicy(
   // Check thresholds
   if (policy.thresholds) {
     for (const [category, threshold] of Object.entries(policy.thresholds)) {
-      const score = scores[category as keyof ModerationCategories];
+      const score = scores[category as keyof ModerationCategoryScores];
       if (score >= threshold && !violations.includes(category)) {
         violations.push(category);
       }
@@ -228,7 +221,8 @@ export function checkPolicy(
   return {
     passed: violations.length === 0,
     violations,
-    action: violations.length > 0 ? policy.action : "block",
+    // Clean content is allowed; only apply the policy's action on a violation.
+    action: violations.length > 0 ? policy.action : "allow",
   };
 }
 `,
@@ -421,7 +415,7 @@ OPENAI_API_KEY="sk-..."
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "openai" }],
+    nextjs: [{ name: "openai", version: "^6.0.0" }],
     remix: [],
     sveltekit: [],
     nuxt: [],

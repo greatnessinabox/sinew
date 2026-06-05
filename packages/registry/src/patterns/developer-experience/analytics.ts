@@ -50,13 +50,19 @@ export const analytics: Pattern = {
         path: "lib/analytics/client.ts",
         content: `import posthog from "posthog-js";
 
+// Module-level guard so we don't re-init on Fast Refresh or repeated mounts.
+// Avoids relying on posthog.__loaded, which is an internal property.
+let hasInitialized = false;
+
 // Initialize PostHog (call once in your app)
 export function initAnalytics() {
   if (typeof window === "undefined") return;
-  if (posthog.__loaded) return;
+  if (hasInitialized) return;
+  hasInitialized = true;
 
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com",
+    // US cloud. Use https://eu.i.posthog.com for the EU region.
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
     // Recommended settings for Next.js
     capture_pageview: false, // We'll capture manually
     capture_pageleave: true,
@@ -101,19 +107,14 @@ export function trackEvent(
   posthog.capture(event, properties);
 }
 
-// Set user properties
+// Set user properties (current API; replaces posthog.people.set)
 export function setUserProperties(properties: Record<string, unknown>) {
-  posthog.people.set(properties);
+  posthog.setPersonProperties(properties);
 }
 
-// Set user property once (won't overwrite)
+// Set user properties that won't overwrite an existing value
 export function setUserPropertyOnce(properties: Record<string, unknown>) {
-  posthog.people.set_once(properties);
-}
-
-// Increment numeric property
-export function incrementProperty(property: string, value = 1) {
-  posthog.people.increment(property, value);
+  posthog.setPersonProperties(undefined, properties);
 }
 
 // Feature flags from PostHog
@@ -241,7 +242,8 @@ let posthogServer: PostHog | null = null;
 export function getServerPostHog(): PostHog {
   if (!posthogServer) {
     posthogServer = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-      host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com",
+      // US cloud. Use https://eu.i.posthog.com for the EU region.
+      host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
       flushAt: 1, // Send events immediately in serverless
       flushInterval: 0,
     });
@@ -323,10 +325,10 @@ export default function RootLayout({
         path: ".env.example",
         content: `# PostHog (https://posthog.com)
 NEXT_PUBLIC_POSTHOG_KEY="phc_..."
-NEXT_PUBLIC_POSTHOG_HOST="https://app.posthog.com"
+NEXT_PUBLIC_POSTHOG_HOST="https://us.i.posthog.com"
 
 # Or use EU cloud
-# NEXT_PUBLIC_POSTHOG_HOST="https://eu.posthog.com"
+# NEXT_PUBLIC_POSTHOG_HOST="https://eu.i.posthog.com"
 `,
       },
     ],
@@ -336,7 +338,10 @@ NEXT_PUBLIC_POSTHOG_HOST="https://app.posthog.com"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "posthog-js" }, { name: "posthog-node" }],
+    nextjs: [
+      { name: "posthog-js", version: "^1.0.0" },
+      { name: "posthog-node", version: "^5.0.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],

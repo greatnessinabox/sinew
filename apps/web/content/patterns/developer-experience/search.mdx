@@ -20,9 +20,17 @@ Use Meilisearch for typo-tolerant full-text search with filters, facets, and hig
 ```typescript title="lib/search/client.ts"
 import { MeiliSearch, Index } from "meilisearch";
 
-const client = new MeiliSearch({
+// Admin client (master key) for indexing. Never expose this key to the browser.
+const adminClient = new MeiliSearch({
   host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
   apiKey: process.env.MEILISEARCH_API_KEY,
+});
+
+// Search-only client for query-time requests. Falls back to the admin key only
+// if a search key is not configured.
+const searchClient = new MeiliSearch({
+  host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
+  apiKey: process.env.MEILISEARCH_SEARCH_API_KEY || process.env.MEILISEARCH_API_KEY,
 });
 
 export const INDEXES = {
@@ -33,8 +41,29 @@ export const INDEXES = {
 
 export type IndexName = (typeof INDEXES)[keyof typeof INDEXES];
 
+// Attributes a user may filter, sort, or facet on, per index. Shared with the
+// index settings and used to guard the public search endpoint.
+export const indexAttributes: Record<IndexName, { filterable: string[]; sortable: string[] }> = {
+  products: {
+    filterable: ["category", "brand", "price", "inStock"],
+    sortable: ["price", "createdAt", "rating"],
+  },
+  articles: {
+    filterable: ["author", "tags", "publishedAt", "category"],
+    sortable: ["publishedAt", "views"],
+  },
+  users: {
+    filterable: ["role", "createdAt"],
+    sortable: ["createdAt", "name"],
+  },
+};
+
+export const MAX_LIMIT = 50;
+export const MAX_OFFSET = 10_000;
+
+// Admin index for write operations.
 export function getIndex<T extends Record<string, unknown>>(name: IndexName): Index<T> {
-  return client.index<T>(name);
+  return adminClient.index<T>(name);
 }
 
 export interface SearchOptions {
@@ -43,7 +72,36 @@ export interface SearchOptions {
   filter?: string | string[];
   sort?: string[];
   facets?: string[];
-  attributesToHighlight?: string[];
+}
+
+// Clamp pagination and reject filter/sort over attributes outside the allowlist.
+export function sanitizeSearchOptions(index: IndexName, options: SearchOptions): SearchOptions {
+  const allowed = indexAttributes[index];
+  const limit = Math.min(Math.max(1, options.limit ?? 20), MAX_LIMIT);
+  const offset = Math.min(Math.max(0, options.offset ?? 0), MAX_OFFSET);
+
+  const filterExpr = Array.isArray(options.filter)
+    ? options.filter.join(" ")
+    : (options.filter ?? "");
+  for (const [, attr] of filterExpr.matchAll(
+    /([a-zA-Z_][\w.]*)\s*(?:=|!=|>=|<=|>|<|IN|TO|EXISTS|CONTAINS|STARTS WITH)/gi
+  )) {
+    if (!allowed.filterable.includes(attr))
+      throw new Error(`Filtering on "${attr}" is not allowed`);
+  }
+
+  for (const entry of options.sort ?? []) {
+    const attr = entry.split(":")[0];
+    if (!allowed.sortable.includes(attr)) throw new Error(`Sorting on "${attr}" is not allowed`);
+  }
+
+  return {
+    limit,
+    offset,
+    filter: options.filter,
+    sort: options.sort,
+    facets: options.facets?.filter((f) => allowed.filterable.includes(f)),
+  };
 }
 
 export async function search<T extends Record<string, unknown>>(
@@ -51,13 +109,15 @@ export async function search<T extends Record<string, unknown>>(
   query: string,
   options: SearchOptions = {}
 ) {
-  const results = await getIndex<T>(index).search(query, {
-    limit: options.limit ?? 20,
-    offset: options.offset ?? 0,
-    filter: options.filter,
-    sort: options.sort,
-    facets: options.facets,
-    attributesToHighlight: options.attributesToHighlight,
+  const safe = sanitizeSearchOptions(index, options);
+
+  const results = await searchClient.index<T>(index).search(query, {
+    limit: safe.limit,
+    offset: safe.offset,
+    filter: safe.filter,
+    sort: safe.sort,
+    facets: safe.facets,
+    attributesToHighlight: ["*"],
     highlightPreTag: "<mark>",
     highlightPostTag: "</mark>",
   });
@@ -70,32 +130,41 @@ export async function search<T extends Record<string, unknown>>(
     facetDistribution: results.facetDistribution,
   };
 }
+
+// Admin client for indexing operations.
+export function getClient() {
+  return adminClient;
+}
 ```
 
 ```typescript title="lib/search/indexing.ts"
-import { getClient, getIndex, INDEXES, type IndexName } from "./client";
+import { getClient, getIndex, indexAttributes, INDEXES, type IndexName } from "./client";
 
+// Filterable/sortable attributes come from the shared allowlist so the search
+// endpoint and the index settings can never drift apart.
 const indexSettings: Record<IndexName, object> = {
   products: {
     searchableAttributes: ["name", "description", "category", "brand"],
-    filterableAttributes: ["category", "brand", "price", "inStock"],
-    sortableAttributes: ["price", "createdAt", "rating"],
+    filterableAttributes: indexAttributes.products.filterable,
+    sortableAttributes: indexAttributes.products.sortable,
   },
   articles: {
     searchableAttributes: ["title", "content", "author", "tags"],
-    filterableAttributes: ["author", "tags", "publishedAt", "category"],
-    sortableAttributes: ["publishedAt", "views"],
+    filterableAttributes: indexAttributes.articles.filterable,
+    sortableAttributes: indexAttributes.articles.sortable,
   },
   users: {
     searchableAttributes: ["name", "email", "bio"],
-    filterableAttributes: ["role", "createdAt"],
-    sortableAttributes: ["createdAt", "name"],
+    filterableAttributes: indexAttributes.users.filterable,
+    sortableAttributes: indexAttributes.users.sortable,
   },
 };
 
 export async function initializeIndex(name: IndexName): Promise<void> {
   const client = getClient();
-  await client.createIndex(name, { primaryKey: "id" });
+  // createIndex enqueues a task; waitTask() blocks until it finishes so settings
+  // and documents don't race index creation on the first run.
+  await client.createIndex(name, { primaryKey: "id" }).waitTask();
   const index = getIndex(name);
   await index.updateSettings(indexSettings[name]);
 }
@@ -163,13 +232,41 @@ export function useSearch<T extends Record<string, unknown>>(
 
 ```typescript title="app/api/search/route.ts"
 import { NextRequest, NextResponse } from "next/server";
-import { search, type IndexName, INDEXES } from "@/lib/search/client";
+import {
+  search,
+  sanitizeSearchOptions,
+  type IndexName,
+  type SearchOptions,
+  INDEXES,
+} from "@/lib/search/client";
 
 export async function POST(req: NextRequest) {
-  const { index, query, ...options } = await req.json();
+  const body = await req.json();
+  const { index, query } = body;
 
   if (!Object.values(INDEXES).includes(index as IndexName)) {
     return NextResponse.json({ error: "Invalid index" }, { status: 400 });
+  }
+  if (typeof query !== "string") {
+    return NextResponse.json({ error: "Query must be a string" }, { status: 400 });
+  }
+
+  // Only forward known option keys. Never spread the raw body into Meilisearch.
+  const options: SearchOptions = {
+    limit: typeof body.limit === "number" ? body.limit : undefined,
+    offset: typeof body.offset === "number" ? body.offset : undefined,
+    filter: body.filter,
+    sort: Array.isArray(body.sort) ? body.sort : undefined,
+    facets: Array.isArray(body.facets) ? body.facets : undefined,
+  };
+
+  try {
+    sanitizeSearchOptions(index as IndexName, options);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid search options" },
+      { status: 400 }
+    );
   }
 
   const results = await search(index as IndexName, query, options);
@@ -181,10 +278,11 @@ export async function POST(req: NextRequest) {
 
 ### Environment Variables
 
-| Variable              | Description             | Required |
-| --------------------- | ----------------------- | -------- |
-| `MEILISEARCH_HOST`    | Meilisearch server URL  | Yes      |
-| `MEILISEARCH_API_KEY` | Master or admin API key | Yes      |
+| Variable                     | Description                              | Required |
+| ---------------------------- | ---------------------------------------- | -------- |
+| `MEILISEARCH_HOST`           | Meilisearch server URL                   | Yes      |
+| `MEILISEARCH_API_KEY`        | Admin/master key (indexing, server-only) | Yes      |
+| `MEILISEARCH_SEARCH_API_KEY` | Search-only key used for query requests  | No       |
 
 ## Usage
 

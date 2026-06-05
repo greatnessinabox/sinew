@@ -14,8 +14,8 @@ export const i18n: Pattern = {
     nextjs: [
       {
         path: "lib/i18n/config.ts",
-        content: `// Supported locales
-export const locales = ["en", "es", "fr", "de", "ja"] as const;
+        content: `// Supported locales. Add a locale here and ship a matching messages/<locale>.json.
+export const locales = ["en", "es"] as const;
 export type Locale = (typeof locales)[number];
 
 // Default locale
@@ -25,61 +25,43 @@ export const defaultLocale: Locale = "en";
 export const localeNames: Record<Locale, string> = {
   en: "English",
   es: "Español",
-  fr: "Français",
-  de: "Deutsch",
-  ja: "日本語",
 };
 
 // Locale flags (emoji or image paths)
 export const localeFlags: Record<Locale, string> = {
   en: "🇺🇸",
   es: "🇪🇸",
-  fr: "🇫🇷",
-  de: "🇩🇪",
-  ja: "🇯🇵",
 };
 
 // Date/time formats per locale
 export const dateFormats: Record<Locale, Intl.DateTimeFormatOptions> = {
   en: { dateStyle: "medium" },
   es: { dateStyle: "medium" },
-  fr: { dateStyle: "medium" },
-  de: { dateStyle: "medium" },
-  ja: { dateStyle: "medium" },
 };
 
 // Number formats per locale
 export const numberFormats: Record<Locale, Intl.NumberFormatOptions> = {
   en: { style: "decimal" },
   es: { style: "decimal" },
-  fr: { style: "decimal" },
-  de: { style: "decimal" },
-  ja: { style: "decimal" },
 };
 
 // Currency formats
 export const currencyFormats: Record<Locale, { currency: string; locale: string }> = {
   en: { currency: "USD", locale: "en-US" },
   es: { currency: "EUR", locale: "es-ES" },
-  fr: { currency: "EUR", locale: "fr-FR" },
-  de: { currency: "EUR", locale: "de-DE" },
-  ja: { currency: "JPY", locale: "ja-JP" },
 };
 `,
       },
       {
         path: "lib/i18n/request.ts",
-        content: `import { getRequestConfig } from "next-intl/server";
-import { locales, type Locale } from "./config";
+        content: `import { hasLocale } from "next-intl";
+import { getRequestConfig } from "next-intl/server";
+import { locales, defaultLocale } from "./config";
 
 export default getRequestConfig(async ({ requestLocale }) => {
-  // Get the locale from the request
-  let locale = await requestLocale;
-
-  // Ensure that a valid locale is used
-  if (!locale || !locales.includes(locale as Locale)) {
-    locale = "en";
-  }
+  // Get the locale from the request and validate it without an unsafe cast.
+  const requested = await requestLocale;
+  const locale = hasLocale(locales, requested) ? requested : defaultLocale;
 
   return {
     locale,
@@ -329,10 +311,10 @@ export function useFormatted() {
         path: "app/[locale]/layout.tsx.example",
         content: `// Example: Locale-specific layout
 
-import { NextIntlClientProvider } from "next-intl";
-import { getMessages } from "next-intl/server";
+import { NextIntlClientProvider, hasLocale } from "next-intl";
+import { getMessages, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { locales, type Locale } from "@/lib/i18n/config";
+import { locales } from "@/lib/i18n/config";
 
 export function generateStaticParams() {
   return locales.map((locale) => ({ locale }));
@@ -340,15 +322,21 @@ export function generateStaticParams() {
 
 export default async function LocaleLayout({
   children,
-  params: { locale },
+  params,
 }: {
   children: React.ReactNode;
-  params: { locale: string };
+  params: Promise<{ locale: string }>;
 }) {
-  // Validate locale
-  if (!locales.includes(locale as Locale)) {
+  // In Next.js 15+ params is a Promise and must be awaited.
+  const { locale } = await params;
+
+  // Validate the locale without an unsafe cast.
+  if (!hasLocale(locales, locale)) {
     notFound();
   }
+
+  // Enable static rendering for locale-aware server components.
+  setRequestLocale(locale);
 
   // Load messages for the locale
   const messages = await getMessages();
@@ -382,7 +370,7 @@ export default withNextIntl(config);
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "next-intl" }],
+    nextjs: [{ name: "next-intl", version: "^4.0.0" }],
     remix: [],
     sveltekit: [],
     nuxt: [],
