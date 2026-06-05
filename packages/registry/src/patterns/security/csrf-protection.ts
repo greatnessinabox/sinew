@@ -4,7 +4,7 @@ export const csrfProtection: Pattern = {
   name: "CSRF Protection",
   slug: "csrf-protection",
   description:
-    "Cross-Site Request Forgery protection for form submissions. Uses secure tokens with Web Crypto API, no external dependencies required.",
+    "Cross-Site Request Forgery protection for form submissions. Uses the double-submit cookie pattern (httpOnly + SameSite=strict) with Web Crypto API, no external dependencies required.",
   category: "security",
   frameworks: ["nextjs"],
   tier: "free",
@@ -17,8 +17,9 @@ export const csrfProtection: Pattern = {
         content: `import { cookies } from "next/headers";
 
 // CSRF token configuration
-const CSRF_TOKEN_NAME = "csrf_token";
-const CSRF_HEADER_NAME = "x-csrf-token";
+const CSRF_TOKEN_NAME = "csrf_token"; // cookie name
+const CSRF_HEADER_NAME = "x-csrf-token"; // request header name
+const CSRF_FIELD_NAME = "_csrf"; // form / JSON body field name
 const TOKEN_LENGTH = 32; // 256 bits
 
 // Generate a random token using Web Crypto API
@@ -55,44 +56,67 @@ export async function setCSRFCookie(token: string): Promise<void> {
   });
 }
 
-// Validate CSRF token from request
-export async function validateCSRFToken(request: Request): Promise<boolean> {
-  const cookieStore = await cookies();
-  const cookieToken = cookieStore.get(CSRF_TOKEN_NAME)?.value;
-
+// Core validation: compare the submitted token against the cookie token.
+// The cookie value is passed in so this works both in Route Handlers (read via
+// cookies()) and in proxy.ts (read via request.cookies) — see below.
+async function validateAgainstCookie(
+  request: Request,
+  cookieToken: string | undefined
+): Promise<boolean> {
   if (!cookieToken) {
     return false;
   }
 
-  // Check header first, then body
+  // Check header first, then body.
   const headerToken = request.headers.get(CSRF_HEADER_NAME);
-
   if (headerToken) {
     return timingSafeEqual(cookieToken, headerToken);
   }
 
-  // For form submissions, check body
   const contentType = request.headers.get("content-type");
-  if (contentType?.includes("application/x-www-form-urlencoded")) {
-    const formData = await request.clone().formData();
-    const bodyToken = formData.get("_csrf")?.toString();
-    if (bodyToken) {
-      return timingSafeEqual(cookieToken, bodyToken);
-    }
-  }
 
-  if (contentType?.includes("application/json")) {
-    const body = await request.clone().json();
-    const bodyToken = body._csrf;
-    if (bodyToken) {
-      return timingSafeEqual(cookieToken, bodyToken);
+  try {
+    if (contentType?.includes("application/x-www-form-urlencoded")) {
+      const formData = await request.clone().formData();
+      const bodyToken = formData.get(CSRF_FIELD_NAME)?.toString();
+      if (bodyToken) {
+        return timingSafeEqual(cookieToken, bodyToken);
+      }
     }
+
+    if (contentType?.includes("application/json")) {
+      const body = (await request.clone().json()) as Record<string, unknown>;
+      const bodyToken = body[CSRF_FIELD_NAME];
+      if (typeof bodyToken === "string") {
+        return timingSafeEqual(cookieToken, bodyToken);
+      }
+    }
+  } catch {
+    // Malformed/empty body: treat as a failed (not crashed) validation.
+    return false;
   }
 
   return false;
 }
 
-// Timing-safe string comparison
+// Validate from a Route Handler / Server Action (reads cookies via next/headers).
+export async function validateCSRFToken(request: Request): Promise<boolean> {
+  const cookieStore = await cookies();
+  const cookieToken = cookieStore.get(CSRF_TOKEN_NAME)?.value;
+  return validateAgainstCookie(request, cookieToken);
+}
+
+// Validate from proxy.ts, where the cookie must be read via request.cookies
+// (cookies() from next/headers is not available in the proxy runtime).
+export async function validateCSRFTokenEdge(
+  request: Request,
+  cookieToken: string | undefined
+): Promise<boolean> {
+  return validateAgainstCookie(request, cookieToken);
+}
+
+// Timing-safe string comparison. Tokens are fixed-length hex, so the length
+// check below does not leak anything useful.
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) {
     return false;
@@ -120,17 +144,16 @@ export async function clearCSRFToken(): Promise<void> {
       {
         path: "lib/csrf/middleware.ts",
         content: `import { NextRequest, NextResponse } from "next/server";
-import { validateCSRFToken } from "./tokens";
+import { validateCSRFToken, validateCSRFTokenEdge } from "./tokens";
 
 // Methods that modify state and need CSRF protection
 const PROTECTED_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
 
-// Middleware to validate CSRF tokens
+// Per-route wrapper for Route Handlers (reads cookies via next/headers).
 export function withCSRFProtection(
   handler: (req: NextRequest) => Promise<Response>
 ) {
   return async (req: NextRequest): Promise<Response> => {
-    // Only check protected methods
     if (PROTECTED_METHODS.includes(req.method)) {
       const isValid = await validateCSRFToken(req);
 
@@ -149,9 +172,9 @@ export function withCSRFProtection(
   };
 }
 
-// Edge middleware for CSRF (add to middleware.ts)
-export async function csrfMiddleware(request: NextRequest) {
-  // Skip CSRF check for safe methods and API routes that handle their own
+// Proxy guard for proxy.ts. In the proxy runtime cookies() is unavailable, so
+// read the cookie via request.cookies and pass it to the validator.
+export async function csrfProxy(request: NextRequest) {
   if (
     !PROTECTED_METHODS.includes(request.method) ||
     request.nextUrl.pathname.startsWith("/api/webhooks") ||
@@ -160,7 +183,8 @@ export async function csrfMiddleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const isValid = await validateCSRFToken(request);
+  const cookieToken = request.cookies.get("csrf_token")?.value;
+  const isValid = await validateCSRFTokenEdge(request, cookieToken);
 
   if (!isValid) {
     return NextResponse.json(

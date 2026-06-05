@@ -4,7 +4,7 @@ export const auditLogging: Pattern = {
   name: "Audit Logging",
   slug: "audit-logging",
   description:
-    "Structured audit trail for compliance and debugging. Tracks user actions with immutable logs, actor identification, and resource tracking.",
+    "Structured audit trail for compliance and debugging. Tracks user actions with append-only database storage, actor identification, and resource tracking.",
   category: "security",
   frameworks: ["nextjs"],
   tier: "free",
@@ -83,42 +83,49 @@ export interface AuditEventInput {
         path: "lib/audit/logger.ts",
         content: `import pino from "pino";
 import { randomUUID } from "crypto";
+import { prisma } from "@/lib/prisma";
 import type { AuditEvent, AuditEventInput, AuditActor } from "./types";
 
-// Pino logger configured for audit events
+// Pino logger configured for audit events.
+// Pino already emits a "time" field; we only customize the level shape.
 const logger = pino({
   name: "audit",
   level: "info",
-  // Structured JSON output
   formatters: {
     level: (label) => ({ level: label }),
     bindings: () => ({}),
   },
-  // Timestamp in ISO format
-  timestamp: () => \`,"timestamp":"\${new Date().toISOString()}"\`,
 });
 
-// In-memory store for development (replace with database in production)
+// Optional in-memory store, only when no database is wired up (local dev).
+// Set AUDIT_IN_MEMORY=1 to use it; it is per-instance and lost on restart,
+// so it is NOT suitable for serverless or multi-instance deployments.
+const useInMemory = process.env.AUDIT_IN_MEMORY === "1";
 const auditStore: AuditEvent[] = [];
 
-// Create and log an audit event
+// Build a fully-populated actor, applying the "user" default without letting
+// an explicit "type: undefined" from the caller clobber it.
+function buildActor(input: AuditEventInput["actor"]): AuditActor {
+  return {
+    ...input,
+    type: input.type ?? "user",
+  };
+}
+
+// Create and log an audit event.
 export async function audit(input: AuditEventInput): Promise<AuditEvent> {
   const event: AuditEvent = {
     id: randomUUID(),
     timestamp: new Date(),
     action: input.action,
     status: input.status ?? "success",
-    actor: {
-      id: input.actor.id,
-      type: input.actor.type ?? "user",
-      ...input.actor,
-    },
+    actor: buildActor(input.actor),
     resource: input.resource,
     metadata: input.metadata,
     changes: input.changes,
   };
 
-  // Log to pino (will output structured JSON)
+  // Log to pino (structured JSON) for observability/streaming.
   logger.info(
     {
       auditId: event.id,
@@ -134,16 +141,39 @@ export async function audit(input: AuditEventInput): Promise<AuditEvent> {
     \`\${event.action}:\${event.resource.type}:\${event.resource.id}\`
   );
 
-  // Store event (replace with database insert)
-  auditStore.push(event);
+  if (useInMemory) {
+    auditStore.push(event);
+    return event;
+  }
 
-  // TODO: In production, insert into database
-  // await db.auditEvent.create({ data: event });
+  // Append-only persistence: the audit table should be insert-only at the DB
+  // layer (no UPDATE/DELETE grants for the app role).
+  await prisma.auditEvent.create({
+    data: {
+      id: event.id,
+      timestamp: event.timestamp,
+      action: event.action,
+      status: event.status,
+      actorId: event.actor.id,
+      actorType: event.actor.type,
+      actorEmail: event.actor.email,
+      actorName: event.actor.name,
+      ipAddress: event.actor.ipAddress,
+      userAgent: event.actor.userAgent,
+      resourceType: event.resource.type,
+      resourceId: event.resource.id,
+      resourceName: event.resource.name,
+      metadata: event.metadata as object | undefined,
+      changes: event.changes as object | undefined,
+      requestId: event.context?.requestId,
+      sessionId: event.context?.sessionId,
+    },
+  });
 
   return event;
 }
 
-// Query audit events
+// Query audit events.
 export async function queryAuditEvents(options: {
   actorId?: string;
   resourceType?: string;
@@ -156,33 +186,81 @@ export async function queryAuditEvents(options: {
 }): Promise<{ events: AuditEvent[]; total: number }> {
   const { limit = 50, offset = 0 } = options;
 
-  // Filter events (replace with database query)
-  let filtered = [...auditStore];
+  if (useInMemory) {
+    let filtered = [...auditStore];
 
-  if (options.actorId) {
-    filtered = filtered.filter((e) => e.actor.id === options.actorId);
-  }
-  if (options.resourceType) {
-    filtered = filtered.filter((e) => e.resource.type === options.resourceType);
-  }
-  if (options.resourceId) {
-    filtered = filtered.filter((e) => e.resource.id === options.resourceId);
-  }
-  if (options.action) {
-    filtered = filtered.filter((e) => e.action === options.action);
-  }
-  if (options.startDate) {
-    filtered = filtered.filter((e) => e.timestamp >= options.startDate!);
-  }
-  if (options.endDate) {
-    filtered = filtered.filter((e) => e.timestamp <= options.endDate!);
+    if (options.actorId) {
+      filtered = filtered.filter((e) => e.actor.id === options.actorId);
+    }
+    if (options.resourceType) {
+      filtered = filtered.filter((e) => e.resource.type === options.resourceType);
+    }
+    if (options.resourceId) {
+      filtered = filtered.filter((e) => e.resource.id === options.resourceId);
+    }
+    if (options.action) {
+      filtered = filtered.filter((e) => e.action === options.action);
+    }
+    if (options.startDate) {
+      filtered = filtered.filter((e) => e.timestamp >= options.startDate!);
+    }
+    if (options.endDate) {
+      filtered = filtered.filter((e) => e.timestamp <= options.endDate!);
+    }
+
+    filtered.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+    const total = filtered.length;
+    const events = filtered.slice(offset, offset + limit);
+    return { events, total };
   }
 
-  // Sort by timestamp descending
-  filtered.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  const where = {
+    actorId: options.actorId,
+    resourceType: options.resourceType,
+    resourceId: options.resourceId,
+    action: options.action,
+    timestamp:
+      options.startDate || options.endDate
+        ? { gte: options.startDate, lte: options.endDate }
+        : undefined,
+  };
 
-  const total = filtered.length;
-  const events = filtered.slice(offset, offset + limit);
+  const [rows, total] = await Promise.all([
+    prisma.auditEvent.findMany({
+      where,
+      orderBy: { timestamp: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.auditEvent.count({ where }),
+  ]);
+
+  const events: AuditEvent[] = rows.map((row) => ({
+    id: row.id,
+    timestamp: row.timestamp,
+    action: row.action as AuditEvent["action"],
+    status: row.status as AuditEvent["status"],
+    actor: {
+      id: row.actorId,
+      type: row.actorType as AuditActor["type"],
+      email: row.actorEmail ?? undefined,
+      name: row.actorName ?? undefined,
+      ipAddress: row.ipAddress ?? undefined,
+      userAgent: row.userAgent ?? undefined,
+    },
+    resource: {
+      type: row.resourceType,
+      id: row.resourceId,
+      name: row.resourceName ?? undefined,
+    },
+    metadata: (row.metadata as Record<string, unknown> | null) ?? undefined,
+    changes: (row.changes as AuditEvent["changes"]) ?? undefined,
+    context: {
+      requestId: row.requestId ?? undefined,
+      sessionId: row.sessionId ?? undefined,
+    },
+  }));
 
   return { events, total };
 }
@@ -213,8 +291,13 @@ export async function getUserAuditTrail(userId: string): Promise<AuditEvent[]> {
       {
         path: "lib/audit/middleware.ts",
         content: `import { NextRequest } from "next/server";
-import { audit, type AuditEventInput } from "./logger";
+import { audit } from "./logger";
 import type { AuditAction, AuditActor } from "./types";
+
+// SECURITY: the actor id is read from the "x-user-id" request header below.
+// That header is client-controlled, so it MUST be set (and any inbound copy
+// stripped) by your verified auth layer before this wrapper runs. Without
+// that, callers can forge the audited actor.
 
 // Extract actor information from request
 export function extractActor(req: NextRequest): Partial<AuditActor> {
@@ -328,7 +411,9 @@ export async function GET(req: NextRequest) {
       },
       {
         path: "prisma/schema.prisma.example",
-        content: `// Add to your Prisma schema for persistent audit logging
+        content: `// Add this model to your Prisma schema. audit() persists here by default;
+// grant the app DB role INSERT/SELECT only (no UPDATE/DELETE) to keep it
+// append-only.
 
 model AuditEvent {
   id          String   @id @default(cuid())
@@ -366,13 +451,32 @@ model AuditEvent {
 `,
       },
       {
-        path: ".env.example",
-        content: `# No external dependencies required
-# Audit logs are written using Pino (structured JSON)
+        path: "lib/prisma.ts",
+        content: `import { PrismaClient } from "@prisma/client";
 
-# For production, consider:
-# - Storing in PostgreSQL (via Prisma)
-# - Streaming to a log aggregation service (Datadog, Axiom, etc.)
+// Reuse a single client across hot reloads / lambda invocations.
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
+`,
+      },
+      {
+        path: ".env.example",
+        content: `# Audit logs persist to your database via Prisma by default.
+# DATABASE_URL is required (used by the Prisma client in lib/prisma.ts).
+DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
+
+# Local-only fallback: set to 1 to use an in-memory store instead of the DB.
+# Per-instance and lost on restart, so do NOT use in serverless/multi-instance.
+# AUDIT_IN_MEMORY=1
+
+# Optionally stream pino output to a log aggregator (Datadog, Axiom, etc.).
 `,
       },
     ],
@@ -382,14 +486,20 @@ model AuditEvent {
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "pino" }],
+    nextjs: [
+      { name: "pino", version: "^10.0.0" },
+      { name: "@prisma/client", version: "^6.0.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],
     universal: [],
   },
   devDependencies: {
-    nextjs: [{ name: "pino-pretty", dev: true }],
+    nextjs: [
+      { name: "pino-pretty", version: "^13.0.0", dev: true },
+      { name: "prisma", version: "^6.0.0", dev: true },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],

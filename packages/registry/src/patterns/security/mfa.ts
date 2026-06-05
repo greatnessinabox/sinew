@@ -56,51 +56,56 @@ export function verifyTOTPCode(secret: string, code: string): boolean {
     secret: Secret.fromBase32(secret),
   });
 
-  // validate() returns the time step difference or null if invalid
-  // window: 1 allows codes from 1 period before/after (30 seconds tolerance)
+  // validate() returns the time step difference or null if invalid.
+  // window: 1 accepts the code from +/-1 period (90s total acceptance window).
   const delta = totp.validate({ token: code, window: 1 });
   return delta !== null;
 }
 
-// Generate current TOTP code (for testing)
-export function getCurrentCode(secret: string): string {
-  const totp = new TOTP({
-    algorithm: MFA_ALGORITHM,
-    digits: MFA_DIGITS,
-    period: MFA_PERIOD,
-    secret: Secret.fromBase32(secret),
-  });
-  return totp.generate();
+// Server-side secret used to key the backup-code HMAC. Keying means a database
+// leak alone cannot be rainbow-tabled back to the codes.
+function getBackupCodeKey(): Buffer {
+  const key = process.env.MFA_BACKUP_SECRET;
+  if (!key || key.length < 32) {
+    throw new Error(
+      "MFA_BACKUP_SECRET is required (>= 32 chars). Generate with: openssl rand -hex 32"
+    );
+  }
+  return Buffer.from(key);
 }
 
-// Generate backup codes
+// Generate backup codes. 8 random bytes (64 bits) each, so the codes are not
+// brute-forceable even with the HMAC key.
 export function generateBackupCodes(count = 10): string[] {
   const codes: string[] = [];
   for (let i = 0; i < count; i++) {
-    // Generate 8-character alphanumeric codes
-    const code = crypto.randomBytes(4).toString("hex").toUpperCase();
-    codes.push(\`\${code.slice(0, 4)}-\${code.slice(4)}\`);
+    const code = crypto.randomBytes(8).toString("hex").toUpperCase(); // 16 hex chars
+    codes.push(\`\${code.slice(0, 4)}-\${code.slice(4, 8)}-\${code.slice(8, 12)}-\${code.slice(12)}\`);
   }
   return codes;
 }
 
-// Hash backup code for storage (use constant-time comparison when verifying)
+// Hash a backup code for storage using a keyed HMAC (not bare SHA-256).
 export function hashBackupCode(code: string): string {
   return crypto
-    .createHash("sha256")
+    .createHmac("sha256", getBackupCodeKey())
     .update(code.replace(/-/g, "").toUpperCase())
     .digest("hex");
 }
 
-// Verify backup code
+// Verify a backup code against the stored hashes (constant-time).
 export function verifyBackupCode(
   code: string,
   hashedCodes: string[]
 ): { valid: boolean; usedIndex: number } {
-  const hashedInput = hashBackupCode(code);
-  const index = hashedCodes.findIndex((hashed) =>
-    crypto.timingSafeEqual(Buffer.from(hashedInput), Buffer.from(hashed))
-  );
+  const hashedInput = Buffer.from(hashBackupCode(code));
+  const index = hashedCodes.findIndex((hashed) => {
+    const stored = Buffer.from(hashed);
+    // timingSafeEqual throws on length mismatch; guard against malformed/legacy
+    // stored values first.
+    if (stored.length !== hashedInput.length) return false;
+    return crypto.timingSafeEqual(hashedInput, stored);
+  });
   return {
     valid: index !== -1,
     usedIndex: index,
@@ -162,11 +167,13 @@ export async function POST(req: NextRequest) {
     const backupCodes = generateBackupCodes(10);
     const hashedBackupCodes = backupCodes.map(hashBackupCode);
 
-    // TODO: Store secret and hashed backup codes in database (pending verification)
+    // TODO: Store the TOTP secret and hashed backup codes (pending verification).
+    // Encrypt the secret at rest before storing — see the data-encryption pattern:
+    //   import { encrypt } from "@/lib/encryption/crypto";
     // await db.mfaPending.upsert({
     //   where: { userId },
-    //   create: { userId, secret, backupCodes: hashedBackupCodes },
-    //   update: { secret, backupCodes: hashedBackupCodes },
+    //   create: { userId, secret: encrypt(secret), backupCodes: hashedBackupCodes },
+    //   update: { secret: encrypt(secret), backupCodes: hashedBackupCodes },
     // });
 
     return NextResponse.json({
@@ -208,10 +215,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // TODO: Get user's MFA secret and backup codes from database
-    // const mfaData = await db.mfa.findUnique({ where: { userId } });
+    // TODO: Get user's MFA secret and backup codes from database. If you encrypt
+    // the secret at rest, decrypt it here before verifying:
+    //   import { decrypt } from "@/lib/encryption/crypto";
+    //   const row = await db.mfa.findUnique({ where: { userId } });
+    //   const mfaData = { secret: decrypt(row.secret), backupCodes: row.backupCodes };
     const mfaData = {
-      secret: "", // Get from database
+      secret: "", // Get (and decrypt) from database
       backupCodes: [] as string[], // Get hashed codes from database
     };
 
@@ -286,10 +296,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // TODO: Get pending MFA setup from database
+    // TODO: Get pending MFA setup from database (decrypt the secret if you
+    // encrypted it at rest — see the data-encryption pattern).
     // const pendingMfa = await db.mfaPending.findUnique({ where: { userId } });
     const pendingMfa = {
-      secret: "", // Get from database
+      secret: "", // Get (and decrypt) from database
       backupCodes: [] as string[],
     };
 
@@ -495,6 +506,10 @@ export function MFASetup() {
         path: ".env.example",
         content: `# App name (used in authenticator apps)
 NEXT_PUBLIC_APP_NAME="My App"
+
+# Server-side key used to HMAC backup codes before storage (>= 32 chars).
+# Generate with: openssl rand -hex 32
+MFA_BACKUP_SECRET="your-backup-code-hmac-secret-here"
 `,
       },
     ],
@@ -504,14 +519,17 @@ NEXT_PUBLIC_APP_NAME="My App"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "otpauth" }, { name: "qrcode" }],
+    nextjs: [
+      { name: "otpauth", version: "^9.0.0" },
+      { name: "qrcode", version: "^1.5.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],
     universal: [],
   },
   devDependencies: {
-    nextjs: [{ name: "@types/qrcode", dev: true }],
+    nextjs: [{ name: "@types/qrcode", version: "^1.5.0", dev: true }],
     remix: [],
     sveltekit: [],
     nuxt: [],

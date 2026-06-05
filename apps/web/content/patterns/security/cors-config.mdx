@@ -100,13 +100,15 @@ export function corsMiddleware(request: NextRequest): NextResponse | null {
 
 ## Usage
 
-### Add to Middleware
+### Add to proxy.ts
 
-```typescript title="middleware.ts"
+Next.js 16 renamed `middleware.ts` to `proxy.ts` (the export is `proxy`). The middleware echoes the matched origin, so multiple allowed origins work here:
+
+```typescript title="proxy.ts"
 import { NextRequest, NextResponse } from "next/server";
 import { corsMiddleware } from "@/lib/cors/middleware";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/api")) {
     const corsResponse = corsMiddleware(request);
     if (corsResponse) return corsResponse;
@@ -122,17 +124,20 @@ export const config = {
 
 ### Alternative: next.config.ts
 
+A static header can only carry a **single** origin (or `*`). Do not pass a comma-separated list, it produces an invalid header and browsers reject the request. For multiple origins, use the proxy variant above.
+
 ```typescript title="next.config.ts"
+const CORS_ORIGIN = process.env.CORS_ALLOWED_ORIGIN || "http://localhost:3000";
+
 const nextConfig = {
   async headers() {
     return [
       {
         source: "/api/:path*",
         headers: [
-          {
-            key: "Access-Control-Allow-Origin",
-            value: process.env.CORS_ALLOWED_ORIGINS || "http://localhost:3000",
-          },
+          // Single origin only.
+          { key: "Access-Control-Allow-Origin", value: CORS_ORIGIN },
+          { key: "Vary", value: "Origin" },
           { key: "Access-Control-Allow-Methods", value: "GET, POST, PUT, DELETE, OPTIONS" },
           { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
         ],
@@ -146,12 +151,14 @@ const nextConfig = {
 
 ### Environment Variables
 
-| Variable               | Description                     | Required         |
-| ---------------------- | ------------------------------- | ---------------- |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins | Yes (production) |
+| Variable               | Description                                        | Required         |
+| ---------------------- | -------------------------------------------------- | ---------------- |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated origins (proxy/middleware variant) | Yes (production) |
+| `CORS_ALLOWED_ORIGIN`  | A single origin (next.config.ts static variant)    | If using static  |
 
 Example:
 
 ```bash
 CORS_ALLOWED_ORIGINS="https://example.com,https://app.example.com"
+CORS_ALLOWED_ORIGIN="https://example.com"
 ```

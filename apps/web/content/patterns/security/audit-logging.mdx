@@ -1,6 +1,6 @@
 # Audit Logging
 
-Structured audit trail for compliance and debugging with immutable logs.
+Structured audit trail for compliance and debugging, append-only when backed by a database.
 
 ## The Problem
 
@@ -13,7 +13,7 @@ Your application needs a reliable audit trail for:
 
 ## The Solution
 
-Use structured logging with Pino to create an immutable audit trail that captures who did what, when, and to which resources.
+Use structured logging with Pino plus append-only database storage to capture who did what, when, and to which resources.
 
 ## Files
 
@@ -57,15 +57,16 @@ export interface AuditEvent {
 ```typescript title="lib/audit/logger.ts"
 import pino from "pino";
 import { randomUUID } from "crypto";
+import { prisma } from "@/lib/prisma";
 import type { AuditEvent, AuditActor, AuditResource } from "./types";
 
+// Pino already emits a "time" field; we only reshape the level.
 const logger = pino({
   name: "audit",
   level: "info",
   formatters: {
     level: (label) => ({ level: label }),
   },
-  timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
 });
 
 export async function audit(input: {
@@ -80,7 +81,9 @@ export async function audit(input: {
     timestamp: new Date(),
     action: input.action,
     status: input.status ?? "success",
-    actor: { id: input.actor.id, type: input.actor.type ?? "user", ...input.actor },
+    // Spread first, then apply the default so an explicit `type: undefined`
+    // from the caller cannot clobber it.
+    actor: { ...input.actor, type: input.actor.type ?? "user" },
     resource: input.resource,
     changes: input.changes,
   };
@@ -96,7 +99,21 @@ export async function audit(input: {
     `${event.action}:${event.resource.type}:${event.resource.id}`
   );
 
-  // TODO: Persist to database in production
+  // Append-only persistence (grant the app role INSERT/SELECT only).
+  await prisma.auditEvent.create({
+    data: {
+      id: event.id,
+      timestamp: event.timestamp,
+      action: event.action,
+      status: event.status,
+      actorId: event.actor.id,
+      actorType: event.actor.type,
+      resourceType: event.resource.type,
+      resourceId: event.resource.id,
+      changes: event.changes as object | undefined,
+    },
+  });
+
   return event;
 }
 ```
@@ -131,7 +148,7 @@ const { events } = await queryAuditEvents({
 
 ## Configuration
 
-For production, persist audit events to a database:
+`audit()` writes to this table by default. Grant the app DB role INSERT/SELECT only (no UPDATE/DELETE) to keep the trail append-only:
 
 ```prisma title="prisma/schema.prisma"
 model AuditEvent {

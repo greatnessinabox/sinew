@@ -16,86 +16,108 @@ export const dataEncryption: Pattern = {
         path: "lib/encryption/crypto.ts",
         content: `import crypto from "crypto";
 
-// AES-256-GCM encryption
+// AES-256-GCM encryption.
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16; // 128 bits
-const TAG_LENGTH = 16; // 128 bits
 const KEY_LENGTH = 32; // 256 bits
+// Version prefix on every ciphertext so we can detect encrypted values and
+// rotate keys without changing the wire format.
+const VERSION = "v1";
 
-// Get encryption key from environment
+// Parse a 64-char hex key into 32 bytes. Hex-only keeps the format consistent
+// with the environment/secrets pattern's ENCRYPTION_KEY validator.
+function parseKey(value: string, label: string): Buffer {
+  if (!/^[0-9a-f]{64}$/i.test(value)) {
+    throw new Error(\`\${label} must be 64 hex characters (256 bits)\`);
+  }
+  return Buffer.from(value, "hex");
+}
+
+// Current key (used for encryption and tried first on decrypt).
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
     throw new Error("ENCRYPTION_KEY environment variable is required");
   }
-
-  // Key should be 32 bytes (256 bits) in hex or base64
-  const keyBuffer = key.length === 64
-    ? Buffer.from(key, "hex")
-    : Buffer.from(key, "base64");
-
-  if (keyBuffer.length !== KEY_LENGTH) {
-    throw new Error(
-      \`Invalid ENCRYPTION_KEY length. Expected \${KEY_LENGTH} bytes, got \${keyBuffer.length}\`
-    );
-  }
-
-  return keyBuffer;
+  return parseKey(key, "ENCRYPTION_KEY");
 }
 
-// Encrypt data
+// Optional previous key, tried on decrypt during a rotation window.
+function getPreviousKey(): Buffer | null {
+  const key = process.env.ENCRYPTION_KEY_PREVIOUS;
+  if (!key) return null;
+  return parseKey(key, "ENCRYPTION_KEY_PREVIOUS");
+}
+
+// Encrypt data. Format: v1:iv:authTag:ciphertext (all hex).
 export function encrypt(plaintext: string): string {
   const key = getEncryptionKey();
   const iv = crypto.randomBytes(IV_LENGTH);
 
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  let encrypted = cipher.update(plaintext, "utf8", "hex");
-  encrypted += cipher.final("hex");
-
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
   const tag = cipher.getAuthTag();
 
-  // Combine IV + Tag + Ciphertext
-  // Format: iv(32 hex) + tag(32 hex) + ciphertext
-  return iv.toString("hex") + tag.toString("hex") + encrypted;
+  return [
+    VERSION,
+    iv.toString("hex"),
+    tag.toString("hex"),
+    encrypted.toString("hex"),
+  ].join(":");
 }
 
-// Decrypt data
-export function decrypt(ciphertext: string): string {
-  const key = getEncryptionKey();
-
-  // Extract IV, tag, and encrypted data
-  const iv = Buffer.from(ciphertext.slice(0, IV_LENGTH * 2), "hex");
-  const tag = Buffer.from(
-    ciphertext.slice(IV_LENGTH * 2, (IV_LENGTH + TAG_LENGTH) * 2),
-    "hex"
-  );
-  const encrypted = ciphertext.slice((IV_LENGTH + TAG_LENGTH) * 2);
-
+function decryptWithKey(
+  key: Buffer,
+  iv: Buffer,
+  tag: Buffer,
+  ciphertext: Buffer
+): string {
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
-
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-
-  return decrypted;
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString(
+    "utf8"
+  );
 }
 
-// Hash data (one-way, for searching)
+// Decrypt data. Tries the current key, then the previous key (rotation).
+export function decrypt(value: string): string {
+  const [version, ivHex, tagHex, ciphertextHex] = value.split(":");
+  if (version !== VERSION || !ivHex || !tagHex || !ciphertextHex) {
+    throw new Error("Invalid ciphertext format");
+  }
+
+  const iv = Buffer.from(ivHex, "hex");
+  const tag = Buffer.from(tagHex, "hex");
+  const ciphertext = Buffer.from(ciphertextHex, "hex");
+
+  try {
+    return decryptWithKey(getEncryptionKey(), iv, tag, ciphertext);
+  } catch (err) {
+    const previous = getPreviousKey();
+    if (previous) {
+      return decryptWithKey(previous, iv, tag, ciphertext);
+    }
+    throw err;
+  }
+}
+
+// Hash data (one-way, for equality search). Keyed HMAC blocks keyless
+// dictionary attacks, but it is deterministic and unsalted: do not rely on it
+// for very low-entropy secrets (e.g. SSN, DOB) if the key could leak.
 export function hash(data: string): string {
   const key = getEncryptionKey();
   return crypto.createHmac("sha256", key).update(data).digest("hex");
 }
 
-// Check if value is encrypted (starts with valid IV format)
+// Check if a value was produced by encrypt() (carries the version prefix).
 export function isEncrypted(value: string): boolean {
-  if (value.length < (IV_LENGTH + TAG_LENGTH) * 2 + 2) {
-    return false;
-  }
-  // Check if it looks like hex
-  return /^[0-9a-f]+$/i.test(value);
+  return value.startsWith(VERSION + ":");
 }
 
-// Generate a new encryption key (for setup)
+// Generate a new encryption key (for setup).
 export function generateKey(): string {
   return crypto.randomBytes(KEY_LENGTH).toString("hex");
 }
@@ -107,7 +129,7 @@ export function generateKey(): string {
 
 // Field encryption helpers for specific data types
 
-export interface EncryptedField<T = string> {
+export interface EncryptedField {
   encrypted: string;
   hash: string;
 }
@@ -116,7 +138,7 @@ export interface EncryptedField<T = string> {
 export function encryptField(value: string): EncryptedField {
   return {
     encrypted: encrypt(value),
-    hash: hash(value.toLowerCase()), // Hash for searching
+    hash: hash(value.toLowerCase()), // Hash for case-insensitive search
   };
 }
 
@@ -134,7 +156,8 @@ export function encryptObject<T extends Record<string, unknown>>(
 
   for (const field of sensitiveFields) {
     const value = result[field];
-    if (typeof value === "string" && value.length > 0) {
+    // Skip already-encrypted values so a read-modify-write cannot double-encrypt.
+    if (typeof value === "string" && value.length > 0 && !isEncrypted(value)) {
       (result as Record<string, unknown>)[field as string] = encrypt(value);
     }
   }
@@ -206,12 +229,13 @@ export function decryptPII(
       },
       {
         path: "lib/encryption/prisma-extension.ts",
-        content: `import { encrypt, decrypt, isEncrypted } from "./crypto";
+        content: `import { Prisma } from "@prisma/client";
+import { encrypt, decrypt, isEncrypted } from "./crypto";
 
-// Prisma extension for automatic field encryption
-// Add to your Prisma client setup
+// Prisma extension for automatic field encryption.
+// Apply with: const prisma = new PrismaClient().$extends(encryptionExtension)
 
-// Fields to encrypt per model
+// Fields to encrypt per model.
 const encryptedFields: Record<string, string[]> = {
   User: ["ssn", "dateOfBirth"],
   Customer: ["phone", "address"],
@@ -219,80 +243,67 @@ const encryptedFields: Record<string, string[]> = {
   // Add your models and fields here
 };
 
-// Create middleware function
-export function createEncryptionMiddleware() {
-  return {
-    // Encrypt on create/update
-    query: {
-      $allModels: {
-        async create({ model, args, query }: { model: string; args: { data: Record<string, unknown> }; query: Function }) {
-          const fields = encryptedFields[model];
-          if (fields) {
-            for (const field of fields) {
-              if (args.data[field] && typeof args.data[field] === "string") {
-                args.data[field] = encrypt(args.data[field] as string);
-              }
-            }
-          }
-          return query(args);
-        },
+// Encrypt configured fields on a write payload, skipping already-encrypted
+// values so a read-modify-write cannot double-encrypt.
+function encryptPayload(fields: string[], data: Record<string, unknown>): void {
+  for (const field of fields) {
+    const value = data[field];
+    if (typeof value === "string" && value.length > 0 && !isEncrypted(value)) {
+      data[field] = encrypt(value);
+    }
+  }
+}
 
-        async update({ model, args, query }: { model: string; args: { data: Record<string, unknown> }; query: Function }) {
-          const fields = encryptedFields[model];
-          if (fields) {
-            for (const field of fields) {
-              if (args.data[field] && typeof args.data[field] === "string") {
-                args.data[field] = encrypt(args.data[field] as string);
-              }
-            }
+export const encryptionExtension = Prisma.defineExtension({
+  name: "field-encryption",
+  query: {
+    $allModels: {
+      $allOperations({ model, operation, args, query }) {
+        const fields = encryptedFields[model];
+        if (fields) {
+          const writeArgs = args as {
+            data?: Record<string, unknown>;
+            create?: Record<string, unknown>;
+            update?: Record<string, unknown>;
+          };
+          if (operation === "create" || operation === "update") {
+            if (writeArgs.data) encryptPayload(fields, writeArgs.data);
+          } else if (operation === "upsert") {
+            if (writeArgs.create) encryptPayload(fields, writeArgs.create);
+            if (writeArgs.update) encryptPayload(fields, writeArgs.update);
           }
-          return query(args);
-        },
-
-        async upsert({ model, args, query }: { model: string; args: { create: Record<string, unknown>; update: Record<string, unknown> }; query: Function }) {
-          const fields = encryptedFields[model];
-          if (fields) {
-            for (const field of fields) {
-              if (args.create[field] && typeof args.create[field] === "string") {
-                args.create[field] = encrypt(args.create[field] as string);
-              }
-              if (args.update[field] && typeof args.update[field] === "string") {
-                args.update[field] = encrypt(args.update[field] as string);
-              }
-            }
-          }
-          return query(args);
-        },
+        }
+        return query(args);
       },
     },
-
-    // Decrypt on read
-    result: Object.fromEntries(
-      Object.entries(encryptedFields).map(([model, fields]) => [
-        model,
-        Object.fromEntries(
-          fields.map((field) => [
-            field,
-            {
-              needs: { [field]: true },
-              compute(data: Record<string, unknown>) {
-                const value = data[field];
-                if (typeof value === "string" && isEncrypted(value)) {
-                  try {
-                    return decrypt(value);
-                  } catch {
-                    return value;
-                  }
+  },
+  result: Object.fromEntries(
+    Object.entries(encryptedFields).map(([model, fields]) => [
+      // result extensions key on the lowercase model accessor (e.g. "user"),
+      // not the PascalCase schema name used above for the query side.
+      model.charAt(0).toLowerCase() + model.slice(1),
+      Object.fromEntries(
+        fields.map((field) => [
+          field,
+          {
+            needs: { [field]: true },
+            compute(data: Record<string, unknown>) {
+              const value = data[field];
+              if (typeof value === "string" && isEncrypted(value)) {
+                try {
+                  return decrypt(value);
+                } catch {
+                  return value;
                 }
-                return value;
-              },
+              }
+              return value;
             },
-          ])
-        ),
-      ])
-    ),
-  };
-}
+          },
+        ])
+      ),
+    ])
+  ),
+});
 `,
       },
       {
@@ -324,13 +335,14 @@ export { setup };
       },
       {
         path: ".env.example",
-        content: `# Encryption Key (256-bit / 32 bytes)
+        content: `# Encryption Key (256-bit / 32 bytes), 64 hex characters.
 # Generate with: node -r ts-node/register lib/encryption/setup.ts
 # Or: openssl rand -hex 32
 ENCRYPTION_KEY="your-64-character-hex-key-here"
 
-# For key rotation, you can add:
-# ENCRYPTION_KEY_PREVIOUS="old-key-for-decryption-during-rotation"
+# Key rotation: set the old key here while re-encrypting. decrypt() tries the
+# current key first, then this one. Remove it once all data is re-encrypted.
+# ENCRYPTION_KEY_PREVIOUS="old-64-character-hex-key-here"
 `,
       },
     ],
@@ -340,7 +352,9 @@ ENCRYPTION_KEY="your-64-character-hex-key-here"
     universal: [],
   },
   dependencies: {
-    nextjs: [], // Uses Node.js crypto module
+    // crypto.ts/fields.ts use only the Node crypto module. The Prisma extension
+    // needs @prisma/client; it is harmless to install if you skip that file.
+    nextjs: [{ name: "@prisma/client", version: "^6.0.0" }],
     remix: [],
     sveltekit: [],
     nuxt: [],

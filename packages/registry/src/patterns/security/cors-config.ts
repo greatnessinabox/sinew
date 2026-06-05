@@ -99,34 +99,35 @@ function getConfigForRoute(pathname: string): CORSConfig {
   return defaultConfig;
 }
 
-// Apply CORS headers to response
+// Apply CORS headers onto an existing Headers object.
 export function applyCORSHeaders(
-  response: NextResponse,
+  headers: Headers,
   origin: string,
   config: CORSConfig
-): NextResponse {
+): Headers {
   // Set origin
   if (config.allowedOrigins === "*") {
-    response.headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Origin", "*");
   } else if (config.allowedOrigins.includes(origin)) {
-    response.headers.set("Access-Control-Allow-Origin", origin);
-    response.headers.set("Vary", "Origin");
+    headers.set("Access-Control-Allow-Origin", origin);
+    // Append so we don't clobber a Vary header set elsewhere.
+    headers.append("Vary", "Origin");
   }
 
   // Set credentials
   if (config.credentials) {
-    response.headers.set("Access-Control-Allow-Credentials", "true");
+    headers.set("Access-Control-Allow-Credentials", "true");
   }
 
   // Set exposed headers
   if (config.exposedHeaders?.length) {
-    response.headers.set(
+    headers.set(
       "Access-Control-Expose-Headers",
       config.exposedHeaders.join(", ")
     );
   }
 
-  return response;
+  return headers;
 }
 
 // Handle preflight (OPTIONS) request
@@ -141,7 +142,8 @@ export function handlePreflight(
     response.headers.set("Access-Control-Allow-Origin", "*");
   } else if (config.allowedOrigins.includes(origin)) {
     response.headers.set("Access-Control-Allow-Origin", origin);
-    response.headers.set("Vary", "Origin");
+    // Append so we don't clobber a Vary header set elsewhere.
+    response.headers.append("Vary", "Origin");
   }
 
   // Set allowed methods
@@ -214,33 +216,29 @@ export function withCORS(
       return new NextResponse("CORS: Origin not allowed", { status: 403 });
     }
 
-    // Execute handler
+    // Execute handler, then add CORS headers to the original response so we
+    // never re-read or re-stream an already-consumed body.
     const response = await handler(req);
 
-    // Apply CORS headers
-    const corsResponse = new NextResponse(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
-
     if (origin) {
-      applyCORSHeaders(corsResponse, origin, corsConfig);
+      applyCORSHeaders(response.headers, origin, corsConfig);
     }
 
-    return corsResponse;
+    return response;
   };
 }
 `,
       },
       {
-        path: "middleware.ts.example",
-        content: `// Add CORS handling to your middleware.ts
+        path: "proxy.ts.example",
+        content: `// Add CORS handling to your proxy.ts (Next.js 16 renamed middleware.ts to
+// proxy.ts; the export is "proxy"). Run "npx @next/codemod middleware-to-proxy"
+// if you are migrating an existing middleware.ts.
 
 import { NextRequest, NextResponse } from "next/server";
 import { corsMiddleware } from "@/lib/cors/middleware";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // Handle CORS for API routes
   if (request.nextUrl.pathname.startsWith("/api")) {
     const corsResponse = corsMiddleware(request);
@@ -249,7 +247,7 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Continue with other middleware
+  // Continue with the request
   return NextResponse.next();
 }
 
@@ -277,8 +275,14 @@ export const OPTIONS = withCORS(handler);
       },
       {
         path: "next.config.ts.example",
-        content: `// Alternative: Configure CORS headers in next.config.ts
-// This is simpler but less flexible than middleware
+        content: `// Alternative: Configure CORS headers in next.config.ts.
+// Simpler than the proxy, but the static Access-Control-Allow-Origin header
+// only supports a SINGLE origin (or "*"). A comma-separated list is invalid
+// and browsers will reject every cross-origin request. If you need to allow
+// more than one origin, use the proxy/middleware variant which echoes the
+// matched origin instead.
+
+const CORS_ORIGIN = process.env.CORS_ALLOWED_ORIGIN || "http://localhost:3000";
 
 const nextConfig = {
   async headers() {
@@ -289,8 +293,13 @@ const nextConfig = {
         headers: [
           {
             key: "Access-Control-Allow-Origin",
-            // Use specific origin in production
-            value: process.env.CORS_ALLOWED_ORIGINS || "http://localhost:3000",
+            // A single origin only. Do NOT pass a comma-separated list here.
+            value: CORS_ORIGIN,
+          },
+          {
+            // Required whenever the allowed origin varies by request.
+            key: "Vary",
+            value: "Origin",
           },
           {
             key: "Access-Control-Allow-Methods",
@@ -316,11 +325,19 @@ export default nextConfig;
       {
         path: ".env.example",
         content: `# CORS Configuration
-# Comma-separated list of allowed origins
+
+# Used by the proxy/middleware variant (lib/cors): comma-separated list of
+# allowed origins. The middleware echoes the matched origin back, so multiple
+# origins work here.
 CORS_ALLOWED_ORIGINS="https://your-domain.com,https://app.your-domain.com"
+
+# Used only by the next.config.ts static-header variant: a SINGLE origin.
+# A static Access-Control-Allow-Origin header cannot hold a list.
+CORS_ALLOWED_ORIGIN="https://your-domain.com"
 
 # For development, you might use:
 # CORS_ALLOWED_ORIGINS="http://localhost:3000,http://localhost:3001"
+# CORS_ALLOWED_ORIGIN="http://localhost:3000"
 `,
       },
     ],

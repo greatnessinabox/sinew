@@ -12,77 +12,94 @@ Forms and state-changing requests are vulnerable to CSRF attacks where:
 
 ## The Solution
 
-Generate and validate CSRF tokens using the Web Crypto API. Include tokens in forms and validate on the server.
+Use the double-submit cookie pattern: a random token is stored in an httpOnly, SameSite=strict cookie and echoed back in a form field or header. The server compares the two with a constant-time check. No shared signing secret is required.
 
 ## Files
 
 ```typescript title="lib/csrf/tokens.ts"
 import { cookies } from "next/headers";
 
-const CSRF_COOKIE = "csrf_token";
-const CSRF_SECRET = process.env.CSRF_SECRET || "your-csrf-secret-key";
-const TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
+const CSRF_TOKEN_NAME = "csrf_token"; // cookie name
+const CSRF_HEADER_NAME = "x-csrf-token"; // request header name
+const CSRF_FIELD_NAME = "_csrf"; // form / JSON body field name
+const TOKEN_LENGTH = 32; // 256 bits
 
-// Generate HMAC signature
-async function sign(data: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(CSRF_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
-  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+async function generateToken(): Promise<string> {
+  const buffer = new Uint8Array(TOKEN_LENGTH);
+  crypto.getRandomValues(buffer);
+  return Array.from(buffer)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
-// Generate a new CSRF token
-export async function generateCSRFToken(): Promise<string> {
-  const timestamp = Date.now().toString();
-  const random = crypto.randomUUID();
-  const data = `${timestamp}:${random}`;
-  const signature = await sign(data);
-
-  const token = `${data}:${signature}`;
-
-  // Store in HTTP-only cookie
+export async function getCSRFToken(): Promise<string> {
   const cookieStore = await cookies();
-  cookieStore.set(CSRF_COOKIE, token, {
+  return cookieStore.get(CSRF_TOKEN_NAME)?.value ?? (await generateToken());
+}
+
+export async function setCSRFCookie(token: string): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(CSRF_TOKEN_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    maxAge: TOKEN_EXPIRY / 1000,
+    path: "/",
+    maxAge: 60 * 60 * 24, // 24 hours
   });
-
-  return token;
 }
 
-// Validate CSRF token
-export async function validateCSRFToken(token: string): Promise<boolean> {
+async function validateAgainstCookie(
+  request: Request,
+  cookieToken: string | undefined
+): Promise<boolean> {
+  if (!cookieToken) return false;
+
+  const headerToken = request.headers.get(CSRF_HEADER_NAME);
+  if (headerToken) return timingSafeEqual(cookieToken, headerToken);
+
+  const contentType = request.headers.get("content-type");
+  try {
+    if (contentType?.includes("application/x-www-form-urlencoded")) {
+      const formData = await request.clone().formData();
+      const bodyToken = formData.get(CSRF_FIELD_NAME)?.toString();
+      if (bodyToken) return timingSafeEqual(cookieToken, bodyToken);
+    }
+    if (contentType?.includes("application/json")) {
+      const body = (await request.clone().json()) as Record<string, unknown>;
+      const bodyToken = body[CSRF_FIELD_NAME];
+      if (typeof bodyToken === "string") return timingSafeEqual(cookieToken, bodyToken);
+    }
+  } catch {
+    // Malformed/empty body: fail validation instead of throwing.
+    return false;
+  }
+
+  return false;
+}
+
+// For Route Handlers / Server Actions (cookie read via next/headers).
+export async function validateCSRFToken(request: Request): Promise<boolean> {
   const cookieStore = await cookies();
-  const storedToken = cookieStore.get(CSRF_COOKIE)?.value;
+  return validateAgainstCookie(request, cookieStore.get(CSRF_TOKEN_NAME)?.value);
+}
 
-  if (!storedToken || storedToken !== token) {
-    return false;
-  }
+// For proxy.ts, where the cookie must come from request.cookies.
+export async function validateCSRFTokenEdge(
+  request: Request,
+  cookieToken: string | undefined
+): Promise<boolean> {
+  return validateAgainstCookie(request, cookieToken);
+}
 
-  const [timestamp, random, signature] = token.split(":");
-  const data = `${timestamp}:${random}`;
-  const expectedSignature = await sign(data);
-
-  if (signature !== expectedSignature) {
-    return false;
-  }
-
-  // Check expiry
-  const tokenTime = parseInt(timestamp);
-  if (Date.now() - tokenTime > TOKEN_EXPIRY) {
-    return false;
-  }
-
-  return true;
+// Tokens are fixed-length hex, so the length check leaks nothing useful.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  let result = 0;
+  for (let i = 0; i < aBytes.length; i++) result |= aBytes[i] ^ bBytes[i];
+  return result === 0;
 }
 ```
 
@@ -91,7 +108,7 @@ export async function validateCSRFToken(token: string): Promise<boolean> {
 
 import { useEffect, useState } from "react";
 
-export function CSRFInput() {
+export function CSRFInput({ name = "_csrf" }: { name?: string }) {
   const [token, setToken] = useState("");
 
   useEffect(() => {
@@ -100,16 +117,17 @@ export function CSRFInput() {
       .then((data) => setToken(data.token));
   }, []);
 
-  return <input type="hidden" name="csrf_token" value={token} />;
+  return <input type="hidden" name={name} value={token} />;
 }
 ```
 
 ```typescript title="app/api/csrf/route.ts"
 import { NextResponse } from "next/server";
-import { generateCSRFToken } from "@/lib/csrf/tokens";
+import { getCSRFToken, setCSRFCookie } from "@/lib/csrf/tokens";
 
 export async function GET() {
-  const token = await generateCSRFToken();
+  const token = await getCSRFToken();
+  await setCSRFCookie(token);
   return NextResponse.json({ token });
 }
 ```
@@ -132,16 +150,13 @@ export function ContactForm() {
 }
 ```
 
-### Validate in API Route
+### Validate in a Route Handler
 
 ```typescript
 import { validateCSRFToken } from "@/lib/csrf/tokens";
 
 export async function POST(req: Request) {
-  const formData = await req.formData();
-  const csrfToken = formData.get("csrf_token") as string;
-
-  if (!(await validateCSRFToken(csrfToken))) {
+  if (!(await validateCSRFToken(req))) {
     return Response.json({ error: "Invalid CSRF token" }, { status: 403 });
   }
 
@@ -149,16 +164,31 @@ export async function POST(req: Request) {
 }
 ```
 
+### Validate in proxy.ts
+
+In Next.js 16 the middleware file is named `proxy.ts`. Read the cookie via `request.cookies`:
+
+```typescript title="proxy.ts"
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { validateCSRFTokenEdge } from "@/lib/csrf/tokens";
+
+const PROTECTED = ["POST", "PUT", "PATCH", "DELETE"];
+
+export async function proxy(request: NextRequest) {
+  if (!PROTECTED.includes(request.method)) return NextResponse.next();
+
+  const cookieToken = request.cookies.get("csrf_token")?.value;
+  if (!(await validateCSRFTokenEdge(request, cookieToken))) {
+    return NextResponse.json({ error: "CSRF validation failed" }, { status: 403 });
+  }
+
+  return NextResponse.next();
+}
+
+export const config = { matcher: ["/api/:path*"] };
+```
+
 ## Configuration
 
-### Environment Variables
-
-| Variable      | Description                   | Required            |
-| ------------- | ----------------------------- | ------------------- |
-| `CSRF_SECRET` | Secret key for signing tokens | Yes (in production) |
-
-### Generate Secret
-
-```bash
-openssl rand -hex 32
-```
+No environment variables are required. The double-submit pattern relies on the httpOnly, SameSite=strict cookie set by `setCSRFCookie`, so HTTPS in production is recommended (the cookie's `secure` flag is set automatically).

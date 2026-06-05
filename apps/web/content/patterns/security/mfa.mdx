@@ -50,23 +50,36 @@ export function verifyTOTPCode(secret: string, code: string): boolean {
     period: 30,
     secret: Secret.fromBase32(secret),
   });
-  // Allow 1 period tolerance (30 seconds)
+  // window: 1 accepts +/-1 period (90s total acceptance window).
   return totp.validate({ token: code, window: 1 }) !== null;
 }
 
-// Generate backup codes
+// Server-side key used to HMAC backup codes (set MFA_BACKUP_SECRET, >= 32 chars).
+function getBackupCodeKey(): Buffer {
+  const key = process.env.MFA_BACKUP_SECRET;
+  if (!key || key.length < 32) {
+    throw new Error("MFA_BACKUP_SECRET is required (>= 32 chars)");
+  }
+  return Buffer.from(key);
+}
+
+// Generate backup codes: 8 random bytes (64 bits) each.
 export function generateBackupCodes(count = 10): string[] {
   const codes: string[] = [];
   for (let i = 0; i < count; i++) {
-    const code = crypto.randomBytes(4).toString("hex").toUpperCase();
-    codes.push(`${code.slice(0, 4)}-${code.slice(4)}`);
+    const code = crypto.randomBytes(8).toString("hex").toUpperCase();
+    codes.push(`${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}-${code.slice(12)}`);
   }
   return codes;
 }
 
-// Hash backup code for storage
+// Hash a backup code with a keyed HMAC (not bare SHA-256), so a DB leak alone
+// cannot be rainbow-tabled back to the codes.
 export function hashBackupCode(code: string): string {
-  return crypto.createHash("sha256").update(code.replace(/-/g, "").toUpperCase()).digest("hex");
+  return crypto
+    .createHmac("sha256", getBackupCodeKey())
+    .update(code.replace(/-/g, "").toUpperCase())
+    .digest("hex");
 }
 ```
 
@@ -124,7 +137,7 @@ export async function POST(req: NextRequest) {
 2. Generate secret and QR code
 3. User scans QR code with authenticator app
 4. User enters code to verify setup
-5. Store encrypted secret in database
+5. Store the secret in the database, encrypting it at rest (see the data-encryption pattern); store backup codes as the keyed HMAC hashes from `hashBackupCode`
 
 ### Verify During Login
 
@@ -145,9 +158,10 @@ if (mfaSecret) {
 
 ### Environment Variables
 
-| Variable               | Description                     | Required |
-| ---------------------- | ------------------------------- | -------- |
-| `NEXT_PUBLIC_APP_NAME` | App name shown in authenticator | No       |
+| Variable               | Description                                 | Required |
+| ---------------------- | ------------------------------------------- | -------- |
+| `NEXT_PUBLIC_APP_NAME` | App name shown in authenticator             | No       |
+| `MFA_BACKUP_SECRET`    | Key (>= 32 chars) used to HMAC backup codes | Yes      |
 
 ### Database Schema
 
@@ -155,8 +169,8 @@ if (mfaSecret) {
 model MFA {
   id          String   @id @default(cuid())
   userId      String   @unique
-  secret      String   // Encrypted
-  backupCodes String[] // Hashed
+  secret      String   // Encrypt at rest (see data-encryption pattern)
+  backupCodes String[] // Keyed HMAC hashes (see hashBackupCode)
   enabledAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id])
 }
