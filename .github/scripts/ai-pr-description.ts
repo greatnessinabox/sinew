@@ -139,14 +139,19 @@ async function githubRequest(
 }
 
 async function main(): Promise<void> {
+  // Anthropic() reads ANTHROPIC_API_KEY. Skip gracefully (rather than fail) when
+  // it is absent, so PRs don't get a red X before the secret is configured.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.log("ANTHROPIC_API_KEY is not set; skipping AI PR description.");
+    return;
+  }
+
   const token = requireEnv("GITHUB_TOKEN");
   const repo = requireEnv("GITHUB_REPOSITORY");
   const prNumber = requireEnv("PR_NUMBER");
   const baseSha = requireEnv("BASE_SHA");
   const headSha = requireEnv("HEAD_SHA");
   const title = process.env.PR_TITLE ?? "";
-  // Anthropic() reads ANTHROPIC_API_KEY; fail early with a clear message if absent.
-  requireEnv("ANTHROPIC_API_KEY");
 
   const { diff, truncated } = collectDiff(baseSha, headSha);
   if (diff.trim().length === 0) {
