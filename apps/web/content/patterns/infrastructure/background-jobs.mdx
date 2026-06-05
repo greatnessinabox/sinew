@@ -46,8 +46,7 @@ import { inngest } from "./client";
 
 // Welcome email after user signup
 export const sendWelcomeEmail = inngest.createFunction(
-  { id: "send-welcome-email", retries: 3 },
-  { event: "user/created" },
+  { id: "send-welcome-email", retries: 3, triggers: [{ event: "user/created" }] },
   async ({ event, step }) => {
     const { userId, email, name } = event.data;
 
@@ -73,8 +72,8 @@ export const processOrder = inngest.createFunction(
     id: "process-order",
     retries: 5,
     idempotency: "event.data.orderId", // Prevent duplicates
+    triggers: [{ event: "order/placed" }],
   },
-  { event: "order/placed" },
   async ({ event, step }) => {
     const { orderId, items, total } = event.data;
 

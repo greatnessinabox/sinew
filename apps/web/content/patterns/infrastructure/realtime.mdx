@@ -100,15 +100,19 @@ export function useChannel(channelName: string) {
 ```typescript title="hooks/use-event.ts"
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useChannel } from "./use-channel";
 
 export function useEvent<T>(channelName: string, eventName: string, callback: (data: T) => void) {
   const { bind } = useChannel(channelName);
 
+  // Keep the latest callback in a ref so an inline function doesn't re-bind every render.
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
   useEffect(() => {
-    return bind<T>(eventName, callback);
-  }, [bind, eventName, callback]);
+    return bind<T>(eventName, (data) => callbackRef.current(data));
+  }, [bind, eventName]);
 }
 ```
 
@@ -121,11 +125,18 @@ export async function POST(req: NextRequest) {
   const socketId = formData.get("socket_id") as string;
   const channelName = formData.get("channel_name") as string;
 
-  // Get user from your auth system
-  const user = { id: "user_123", name: "John Doe" };
+  // TODO: load the authenticated user from your auth system.
+  const user: { id: string; name: string } | null = null;
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // TODO: authorize this user for the requested channel. Default-deny so a
+  // missing check can't authorize every socket in production.
+  const hasAccess = false; // await checkChannelAccess(user.id, channelName);
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // For presence channels, include user data

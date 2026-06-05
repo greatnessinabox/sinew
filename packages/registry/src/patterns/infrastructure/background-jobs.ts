@@ -104,8 +104,8 @@ export const sendWelcomeEmail = inngest.createFunction(
   {
     id: "send-welcome-email",
     retries: 3,
+    triggers: [{ event: "user/created" }],
   },
-  { event: "user/created" },
   async ({ event, step }) => {
     const { userId, email, name } = event.data;
 
@@ -135,8 +135,8 @@ export const processOrder = inngest.createFunction(
     retries: 5,
     // Prevent duplicate processing
     idempotency: "event.data.orderId",
+    triggers: [{ event: "order/placed" }],
   },
-  { event: "order/placed" },
   async ({ event, step }) => {
     const { orderId, userId, items, total } = event.data;
 
@@ -182,8 +182,8 @@ export const generateReport = inngest.createFunction(
     concurrency: {
       limit: 5,
     },
+    triggers: [{ event: "report/generate" }],
   },
-  { event: "report/generate" },
   async ({ event, step }) => {
     const { reportType, userId, startDate, endDate } = event.data;
 
@@ -323,7 +323,7 @@ INNGEST_EVENT_KEY="..."
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "inngest" }],
+    nextjs: [{ name: "inngest", version: "^4.5.0" }],
     remix: [],
     sveltekit: [],
     nuxt: [],

@@ -204,6 +204,7 @@ const s3 = new S3Client({
 });
 
 const BUCKET = process.env.AWS_S3_BUCKET!;
+const REGION = process.env.AWS_REGION ?? "us-east-1";
 
 export interface PresignedUrlResult {
   uploadUrl: string;
@@ -232,6 +233,11 @@ export async function getPresignedUploadUrl(
 
   const key = \`\${folder}/\${Date.now()}-\${filename}\`;
 
+  // NOTE: ContentLength here makes the presigned PUT require exactly this many
+  // bytes, but it does not stop a client from lying about \`size\` in the request
+  // body (the URL is signed from client-supplied values). Treat validateFile as
+  // advisory. For hard enforcement, use a presigned POST with a
+  // content-length-range condition or an S3 bucket policy.
   const command = new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
@@ -243,7 +249,11 @@ export async function getPresignedUploadUrl(
 
   return {
     uploadUrl,
-    publicUrl: \`https://\${BUCKET}.s3.\${process.env.AWS_REGION}.amazonaws.com/\${key}\`,
+    // Region-correct virtual-hosted URL. The object is only reachable here if
+    // the bucket/object is actually public; otherwise use getPresignedDownloadUrl.
+    // The SSL wildcard cert does not cover bucket names containing dots — use a
+    // presigned GET or a CDN/CNAME for those.
+    publicUrl: \`https://\${BUCKET}.s3.\${REGION}.amazonaws.com/\${key}\`,
     key,
     expiresAt: new Date(Date.now() + expiresIn * 1000),
   };
@@ -307,6 +317,14 @@ import { uploadToBlob } from "@/lib/uploads/blob";
 const PROVIDER = process.env.UPLOAD_PROVIDER ?? "vercel-blob";
 
 export async function POST(req: NextRequest) {
+  // TODO: authenticate and authorize the request before issuing an upload URL
+  // or accepting a file. This endpoint grants write access to your storage, so
+  // require a session / API key here and reject anonymous callers.
+  // const session = await getSession(req);
+  // if (!session) {
+  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // }
+
   try {
     if (PROVIDER === "s3") {
       // S3: Return presigned URL for client-side upload
@@ -497,10 +515,10 @@ AWS_S3_BUCKET="your-bucket-name"
   },
   dependencies: {
     nextjs: [
-      { name: "@vercel/blob" },
-      { name: "@aws-sdk/client-s3" },
-      { name: "@aws-sdk/s3-request-presigner" },
-      { name: "zod" },
+      { name: "@vercel/blob", version: "^2.4.0" },
+      { name: "@aws-sdk/client-s3", version: "^3.901.0" },
+      { name: "@aws-sdk/s3-request-presigner", version: "^3.901.0" },
+      { name: "zod", version: "^4.0.0" },
     ],
     remix: [],
     sveltekit: [],

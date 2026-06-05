@@ -35,12 +35,15 @@ export function verifyHmacSha256(
       .update(payload)
       .digest("hex");
 
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    const a = Buffer.from(signature);
+    const b = Buffer.from(expectedSignature);
 
-    return { valid: isValid };
+    // timingSafeEqual throws if the buffers differ in length, so guard first.
+    if (a.length !== b.length) {
+      return { valid: false, error: "Invalid signature length" };
+    }
+
+    return { valid: crypto.timingSafeEqual(a, b) };
   } catch (error) {
     return { valid: false, error: "Verification failed" };
   }
@@ -79,8 +82,10 @@ export function verifyStripeSignature(
     );
 
     const timestamp = parseInt(parts.t, 10);
+    // Stripe uses the exact scheme key "v1"; an exact match avoids accidentally
+    // accepting a future scheme like "v10".
     const signatures = Object.entries(parts)
-      .filter(([key]) => key.startsWith("v1"))
+      .filter(([key]) => key === "v1")
       .map(([, value]) => value);
 
     // Check timestamp tolerance
@@ -96,9 +101,15 @@ export function verifyStripeSignature(
       .update(signedPayload)
       .digest("hex");
 
-    const isValid = signatures.some((sig) =>
-      crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSignature))
-    );
+    const expectedBuffer = Buffer.from(expectedSignature);
+    const isValid = signatures.some((sig) => {
+      const sigBuffer = Buffer.from(sig);
+      // timingSafeEqual throws on length mismatch, so guard each candidate.
+      return (
+        sigBuffer.length === expectedBuffer.length &&
+        crypto.timingSafeEqual(sigBuffer, expectedBuffer)
+      );
+    });
 
     return { valid: isValid };
   } catch (error) {
@@ -226,23 +237,35 @@ export async function markProcessed(
   await redis.set(key, Date.now(), { ex: IDEMPOTENCY_TTL });
 }
 
-// Wrapper for idempotent processing
+// Wrapper for idempotent processing.
+// Claims the key atomically with SET NX so two concurrent deliveries of the same
+// event can't both run the processor (webhook providers retry in parallel).
 export async function processIdempotent<T>(
   provider: string,
   eventId: string,
   processor: () => Promise<T>
 ): Promise<{ result: T; wasProcessed: boolean }> {
-  const { isNew, processedAt } = await checkIdempotency(provider, eventId);
+  const key = \`webhook:idempotency:\${provider}:\${eventId}\`;
 
-  if (!isNew) {
-    console.log(\`Webhook \${eventId} already processed at \${processedAt}\`);
+  // Atomic claim: only the first caller gets "OK"; later callers get null.
+  const claimed = await redis.set(key, Date.now(), {
+    nx: true,
+    ex: IDEMPOTENCY_TTL,
+  });
+
+  if (claimed !== "OK") {
+    console.log(\`Webhook \${eventId} already processed\`);
     return { result: undefined as T, wasProcessed: true };
   }
 
-  const result = await processor();
-  await markProcessed(provider, eventId);
-
-  return { result, wasProcessed: false };
+  try {
+    const result = await processor();
+    return { result, wasProcessed: false };
+  } catch (error) {
+    // Release the claim so a retry can re-run the handler.
+    await redis.del(key);
+    throw error;
+  }
 }
 `,
       },
@@ -402,7 +425,7 @@ UPSTASH_REDIS_REST_TOKEN="your-token"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "@upstash/redis" }],
+    nextjs: [{ name: "@upstash/redis", version: "^1.38.0" }],
     remix: [],
     sveltekit: [],
     nuxt: [],

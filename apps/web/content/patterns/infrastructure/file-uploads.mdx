@@ -59,14 +59,20 @@ const s3 = new S3Client({
   },
 });
 
+const BUCKET = process.env.AWS_S3_BUCKET!;
+const REGION = process.env.AWS_REGION ?? "us-east-1";
+
 export async function getPresignedUploadUrl(filename: string, contentType: string, size: number) {
   const validation = validateFile(filename, contentType, size);
   if (!validation.valid) throw new Error(validation.error);
 
   const key = `uploads/${Date.now()}-${filename}`;
 
+  // ContentLength is advisory: a client can lie about `size` in the request body
+  // since the URL is signed from client-supplied values. For hard enforcement use
+  // a presigned POST with a content-length-range condition or a bucket policy.
   const command = new PutObjectCommand({
-    Bucket: process.env.AWS_S3_BUCKET!,
+    Bucket: BUCKET,
     Key: key,
     ContentType: contentType,
     ContentLength: size,
@@ -76,7 +82,9 @@ export async function getPresignedUploadUrl(filename: string, contentType: strin
 
   return {
     uploadUrl,
-    publicUrl: `https://${process.env.AWS_S3_BUCKET}.s3.amazonaws.com/${key}`,
+    // Region-correct virtual-hosted URL. Only reachable if the object is public;
+    // the SSL cert does not cover bucket names with dots — use a presigned GET there.
+    publicUrl: `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`,
     key,
   };
 }
@@ -87,6 +95,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPresignedUploadUrl } from "@/lib/uploads/s3";
 
 export async function POST(req: NextRequest) {
+  // TODO: authenticate the request before issuing an upload URL. This grants
+  // write access to your storage, so reject anonymous callers here.
+
   const { filename, contentType, size } = await req.json();
 
   if (!filename || !contentType || !size) {

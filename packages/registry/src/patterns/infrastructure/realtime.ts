@@ -187,23 +187,28 @@ export function useChannel(
 ) {
   const channelRef = useRef<Channel | null>(null);
 
+  // Keep the latest callbacks in a ref so an inline \`options\` object (a new
+  // reference every render) doesn't tear down and resubscribe the channel.
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
   useEffect(() => {
     const channel = subscribe(channelName);
     channelRef.current = channel;
 
     channel.bind("pusher:subscription_succeeded", () => {
-      options.onSubscribed?.();
+      optionsRef.current.onSubscribed?.();
     });
 
     channel.bind("pusher:subscription_error", (error: Error) => {
-      options.onError?.(error);
+      optionsRef.current.onError?.(error);
     });
 
     return () => {
       unsubscribe(channelName);
       channelRef.current = null;
     };
-  }, [channelName, options]);
+  }, [channelName]);
 
   const bind = useCallback(
     <T>(event: string, callback: (data: T) => void) => {
@@ -278,7 +283,7 @@ export function usePresence(channelName: string) {
         path: "hooks/use-event.ts",
         content: `"use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useChannel } from "./use-channel";
 
 // Hook for subscribing to a specific event on a channel
@@ -289,10 +294,15 @@ export function useEvent<T>(
 ) {
   const { bind } = useChannel(channelName);
 
+  // Keep the latest callback in a ref so an inline function (a new reference
+  // every render) doesn't re-bind the event handler on every render.
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
   useEffect(() => {
-    const unbind = bind<T>(eventName, callback);
+    const unbind = bind<T>(eventName, (data) => callbackRef.current(data));
     return unbind;
-  }, [bind, eventName, callback]);
+  }, [bind, eventName]);
 }
 
 // Example: useEvent('presence-room-123', 'message', (data) => console.log(data))
@@ -317,12 +327,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get user from your auth system
+    // TODO: load the authenticated user from your auth system.
     // const user = await getUser(req);
-    const user = {
-      id: "user_123",
-      name: "John Doe",
-    };
+    const user: { id: string; name: string } | null = null;
 
     if (!user) {
       return NextResponse.json(
@@ -331,9 +338,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if user has access to this channel
-    // Implement your authorization logic here
-    const hasAccess = true; // await checkChannelAccess(user.id, channelName);
+    // TODO: authorize this user for the requested channel. Default-deny so a
+    // missing check can't authorize every socket in production.
+    const hasAccess = false; // await checkChannelAccess(user.id, channelName);
 
     if (!hasAccess) {
       return NextResponse.json(
@@ -385,7 +392,10 @@ NEXT_PUBLIC_PUSHER_CLUSTER="us2"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "pusher" }, { name: "pusher-js" }],
+    nextjs: [
+      { name: "pusher", version: "^5.2.0" },
+      { name: "pusher-js", version: "^8.4.0" },
+    ],
     remix: [],
     sveltekit: [],
     nuxt: [],

@@ -21,8 +21,8 @@ export const dailyCleanup = inngest.createFunction(
   {
     id: "daily-cleanup",
     retries: 2,
+    triggers: [{ cron: "0 0 * * *" }], // Every day at midnight
   },
-  { cron: "0 0 * * *" }, // Every day at midnight
   async ({ step }) => {
     // Clean up expired sessions
     const sessionsDeleted = await step.run("cleanup-sessions", async () => {
@@ -57,8 +57,8 @@ export const weeklyReport = inngest.createFunction(
   {
     id: "weekly-report",
     retries: 3,
+    triggers: [{ cron: "0 9 * * 1" }], // Every Monday at 9am
   },
-  { cron: "0 9 * * 1" }, // Every Monday at 9am
   async ({ step }) => {
     // Generate weekly metrics
     const metrics = await step.run("calculate-metrics", async () => {
@@ -88,8 +88,8 @@ export const hourlySyncPrices = inngest.createFunction(
     concurrency: {
       limit: 1, // Only one instance at a time
     },
+    triggers: [{ cron: "0 * * * *" }], // Every hour
   },
-  { cron: "0 * * * *" }, // Every hour
   async ({ step }) => {
     // Fetch latest prices from external API
     const prices = await step.run("fetch-prices", async () => {
@@ -114,8 +114,8 @@ export const monthlyBilling = inngest.createFunction(
   {
     id: "monthly-billing",
     retries: 5,
+    triggers: [{ cron: "0 0 1 * *" }], // 1st of every month at midnight
   },
-  { cron: "0 0 1 * *" }, // 1st of every month at midnight
   async ({ step }) => {
     // Get all active subscriptions
     const subscriptions = await step.run("get-subscriptions", async () => {
@@ -157,7 +157,8 @@ export const runtime = "edge";
 export async function GET(req: NextRequest) {
   // Verify the request is from Vercel Cron
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== \`Bearer \${process.env.CRON_SECRET}\`) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || authHeader !== \`Bearer \${cronSecret}\`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -213,7 +214,7 @@ CRON_SECRET="your-secret-here"
     universal: [],
   },
   dependencies: {
-    nextjs: [{ name: "inngest" }],
+    nextjs: [{ name: "inngest", version: "^4.5.0" }],
     remix: [],
     sveltekit: [],
     nuxt: [],

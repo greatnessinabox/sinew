@@ -22,8 +22,7 @@ import { inngest } from "./client";
 
 // Daily cleanup - runs at midnight UTC
 export const dailyCleanup = inngest.createFunction(
-  { id: "daily-cleanup", retries: 2 },
-  { cron: "0 0 * * *" },
+  { id: "daily-cleanup", retries: 2, triggers: [{ cron: "0 0 * * *" }] },
   async ({ step }) => {
     // Clean up expired sessions
     const sessions = await step.run("cleanup-sessions", async () => {
@@ -42,8 +41,7 @@ export const dailyCleanup = inngest.createFunction(
 
 // Weekly report - every Monday at 9am
 export const weeklyReport = inngest.createFunction(
-  { id: "weekly-report", retries: 3 },
-  { cron: "0 9 * * 1" },
+  { id: "weekly-report", retries: 3, triggers: [{ cron: "0 9 * * 1" }] },
   async ({ step }) => {
     const metrics = await step.run("calculate-metrics", async () => {
       return { newUsers: 100, revenue: 5000 };
@@ -59,8 +57,7 @@ export const weeklyReport = inngest.createFunction(
 
 // Monthly billing - 1st of each month
 export const monthlyBilling = inngest.createFunction(
-  { id: "monthly-billing", retries: 5 },
-  { cron: "0 0 1 * *" },
+  { id: "monthly-billing", retries: 5, triggers: [{ cron: "0 0 1 * *" }] },
   async ({ step }) => {
     const subscriptions = await step.run("get-subscriptions", async () => {
       // return await db.subscription.findMany({ where: { status: 'active' } });
@@ -88,7 +85,8 @@ export const runtime = "edge";
 export async function GET(req: NextRequest) {
   // Verify Vercel Cron secret
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
