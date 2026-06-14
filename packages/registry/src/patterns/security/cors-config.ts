@@ -107,7 +107,13 @@ export function applyCORSHeaders(
 ): Headers {
   // Set origin
   if (config.allowedOrigins === "*") {
-    headers.set("Access-Control-Allow-Origin", "*");
+    if (config.credentials && origin) {
+      // "*" is invalid with credentials, so echo the request origin instead.
+      headers.set("Access-Control-Allow-Origin", origin);
+      headers.append("Vary", "Origin");
+    } else {
+      headers.set("Access-Control-Allow-Origin", "*");
+    }
   } else if (config.allowedOrigins.includes(origin)) {
     headers.set("Access-Control-Allow-Origin", origin);
     // Append so we don't clobber a Vary header set elsewhere.
@@ -139,7 +145,13 @@ export function handlePreflight(
 
   // Set origin
   if (config.allowedOrigins === "*") {
-    response.headers.set("Access-Control-Allow-Origin", "*");
+    if (config.credentials && origin) {
+      // "*" is invalid with credentials, so echo the request origin instead.
+      response.headers.set("Access-Control-Allow-Origin", origin);
+      response.headers.append("Vary", "Origin");
+    } else {
+      response.headers.set("Access-Control-Allow-Origin", "*");
+    }
   } else if (config.allowedOrigins.includes(origin)) {
     response.headers.set("Access-Control-Allow-Origin", origin);
     // Append so we don't clobber a Vary header set elsewhere.

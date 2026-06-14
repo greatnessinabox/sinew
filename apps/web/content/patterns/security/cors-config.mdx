@@ -60,7 +60,13 @@ export function handlePreflight(origin: string, config: CORSConfig): NextRespons
   const response = new NextResponse(null, { status: 204 });
 
   if (config.allowedOrigins === "*") {
-    response.headers.set("Access-Control-Allow-Origin", "*");
+    if (config.credentials && origin) {
+      // "*" is invalid with credentials, so echo the request origin instead.
+      response.headers.set("Access-Control-Allow-Origin", origin);
+      response.headers.set("Vary", "Origin");
+    } else {
+      response.headers.set("Access-Control-Allow-Origin", "*");
+    }
   } else if (config.allowedOrigins.includes(origin)) {
     response.headers.set("Access-Control-Allow-Origin", origin);
     response.headers.set("Vary", "Origin");

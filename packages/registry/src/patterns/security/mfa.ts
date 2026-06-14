@@ -147,7 +147,14 @@ import { generateQRCodeDataURL } from "@/lib/mfa/qrcode";
 
 export async function POST(req: NextRequest) {
   try {
-    // Get user from session (replace with your auth logic)
+    // SECURITY: identify the user from your verified session, not from request
+    // headers. The "x-user-id"/"x-user-email" headers below are client-controlled
+    // and let a caller set up MFA for any account, so they MUST be populated (and
+    // any inbound copy stripped) by your auth layer before this handler runs.
+    // Replace with your own session lookup, e.g.:
+    //   const session = await auth();
+    //   const userId = session?.user?.id;
+    //   const userEmail = session?.user?.email;
     const userId = req.headers.get("x-user-id");
     const userEmail = req.headers.get("x-user-email");
 

@@ -382,7 +382,17 @@ import { queryAuditEvents } from "@/lib/audit/logger";
 
 // Get audit events (admin only)
 export async function GET(req: NextRequest) {
-  // TODO: Add authentication and admin check
+  // SECURITY: audit data is sensitive, so this endpoint must be admin-only.
+  // Resolve the user from your verified session and enforce a role check here —
+  // do NOT gate access on the client-controlled "x-user-id" header (it can be
+  // forged). Replace the block below with your own auth, e.g.:
+  //   const session = await auth();
+  //   if (!session?.user) {
+  //     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  //   }
+  //   if (session.user.role !== "admin") {
+  //     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  //   }
   const userId = req.headers.get("x-user-id");
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
