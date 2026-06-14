@@ -74,8 +74,10 @@ interface RateLimitOptions {
 }
 
 // Get client identifier (IP address or user ID)
+// IMPORTANT: x-user-id header should only be trusted after authentication middleware
+// has verified the user. Ensure this runs AFTER your auth middleware in the chain.
 function getIdentifier(req: NextRequest): string {
-  // Try to get user ID from auth header/cookie first
+  // Try to get user ID from auth header/cookie first (set by auth middleware)
   const userId = req.headers.get("x-user-id");
   if (userId) return \`user:\${userId}\`;
 
