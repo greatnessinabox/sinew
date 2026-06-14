@@ -1,0 +1,236 @@
+# AI Tool Calling
+
+Function/tool calling for agentic AI workflows.
+
+## The Problem
+
+Building AI agents that can take actions requires:
+
+- Type-safe tool definitions
+- Parameter validation
+- Execution handling
+- Multi-step reasoning
+
+## The Solution
+
+Use the Vercel AI SDK's tool calling with Zod schemas for type-safe parameter validation. Includes predefined agent configurations for common use cases.
+
+## Files
+
+```typescript title="lib/ai/tools.ts"
+import { tool } from "ai";
+import { evaluate } from "mathjs";
+import { z } from "zod";
+
+export const weatherTool = tool({
+  description: "Get the current weather in a location",
+  inputSchema: z.object({
+    location: z.string().describe("The city and country"),
+    unit: z.enum(["celsius", "fahrenheit"]).default("celsius"),
+  }),
+  execute: async ({ location, unit }) => {
+    // Replace with actual weather API call
+    return {
+      location,
+      temperature: Math.round(Math.random() * 30),
+      unit,
+      conditions: "partly cloudy",
+    };
+  },
+});
+
+export const searchTool = tool({
+  description: "Search the web for information",
+  inputSchema: z.object({
+    query: z.string().describe("The search query"),
+    maxResults: z.number().optional().default(5),
+  }),
+  execute: async ({ query, maxResults }) => {
+    // Replace with actual search API (Tavily, Brave, etc.)
+    return {
+      query,
+      results: [{ title: `Result for: ${query}`, url: "https://example.com" }],
+    };
+  },
+});
+
+export const calculatorTool = tool({
+  description: "Perform mathematical calculations",
+  inputSchema: z.object({
+    expression: z.string().describe("Math expression to evaluate"),
+  }),
+  execute: async ({ expression }) => {
+    // mathjs.evaluate parses a math grammar instead of running JS, so
+    // model/user-supplied input can't reach the runtime like eval would.
+    try {
+      return { expression, result: evaluate(expression) };
+    } catch {
+      return { expression, error: "Invalid expression" };
+    }
+  },
+});
+
+export const tools = {
+  weather: weatherTool,
+  search: searchTool,
+  calculator: calculatorTool,
+};
+
+export type ToolName = keyof typeof tools;
+```
+
+```typescript title="lib/ai/agent.ts"
+import { streamText, generateText, stepCountIs, type ModelMessage } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { tools, type ToolName } from "./tools";
+
+// Uses OpenAI by default. Swap this for your own provider/model selection.
+const model = openai("gpt-4o");
+
+export interface AgentConfig {
+  systemPrompt: string;
+  availableTools: ToolName[];
+  maxSteps?: number;
+}
+
+function pickTools(names: ToolName[]) {
+  return Object.fromEntries(names.map((name) => [name, tools[name]] as const)) as Pick<
+    typeof tools,
+    ToolName
+  >;
+}
+
+export async function runAgent({
+  config,
+  messages,
+}: {
+  config: AgentConfig;
+  messages: ModelMessage[];
+}) {
+  const { systemPrompt, availableTools, maxSteps = 5 } = config;
+
+  const result = await generateText({
+    model,
+    system: systemPrompt,
+    messages,
+    tools: pickTools(availableTools),
+    stopWhen: stepCountIs(maxSteps),
+  });
+
+  return {
+    text: result.text,
+    toolCalls: result.toolCalls,
+    toolResults: result.toolResults,
+  };
+}
+
+export async function streamAgent({
+  config,
+  messages,
+}: {
+  config: AgentConfig;
+  messages: ModelMessage[];
+}) {
+  const { systemPrompt, availableTools, maxSteps = 5 } = config;
+
+  return streamText({
+    model,
+    system: systemPrompt,
+    messages,
+    tools: pickTools(availableTools),
+    stopWhen: stepCountIs(maxSteps),
+  });
+}
+
+export const agentConfigs: Record<string, AgentConfig> = {
+  assistant: {
+    systemPrompt: `You are a helpful AI assistant with access to various tools.
+Use the available tools when needed to provide accurate responses.`,
+    availableTools: ["weather", "search", "calculator"],
+    maxSteps: 5,
+  },
+  researcher: {
+    systemPrompt: `You are a research assistant. Use the search tool to find information.`,
+    availableTools: ["search"],
+    maxSteps: 5,
+  },
+};
+```
+
+```typescript title="app/api/agent/route.ts"
+import { NextRequest } from "next/server";
+import { streamAgent, agentConfigs } from "@/lib/ai/agent";
+
+export const runtime = "edge";
+
+export async function POST(req: NextRequest) {
+  const { messages, agentType = "assistant" } = await req.json();
+
+  const config = agentConfigs[agentType];
+  if (!config) {
+    return Response.json({ error: "Unknown agent type" }, { status: 400 });
+  }
+
+  const result = await streamAgent({ config, messages });
+  return result.toUIMessageStreamResponse();
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable         | Description                 | Required |
+| ---------------- | --------------------------- | -------- |
+| `OPENAI_API_KEY` | OpenAI API key              | Yes      |
+| `TAVILY_API_KEY` | Tavily API key (for search) | Optional |
+
+## Usage
+
+### Simple Tool Call
+
+```typescript
+import { runAgent, agentConfigs } from "@/lib/ai/agent";
+
+const result = await runAgent({
+  config: agentConfigs.assistant,
+  messages: [{ role: "user", content: "What's the weather in London?" }],
+});
+
+console.log(result.text);
+console.log(result.toolResults);
+```
+
+### Custom Agent
+
+```typescript
+const customAgent: AgentConfig = {
+  systemPrompt: "You are a math tutor. Use the calculator to solve problems.",
+  availableTools: ["calculator"],
+  maxSteps: 3,
+};
+
+const result = await runAgent({
+  config: customAgent,
+  messages: [{ role: "user", content: "What is 15% of 230?" }],
+});
+```
+
+### Adding Custom Tools
+
+```typescript
+import { tool } from "ai";
+import { z } from "zod";
+
+export const customTool = tool({
+  description: "Your custom tool description",
+  inputSchema: z.object({
+    param1: z.string(),
+    param2: z.number().optional(),
+  }),
+  execute: async ({ param1, param2 }) => {
+    // Your implementation
+    return { result: "success" };
+  },
+});
+```
