@@ -16,21 +16,7 @@ interface SinewConfig {
 export async function init() {
   console.log(pc.bold("\n  sinew init\n"));
 
-  // Check if config already exists
   const configPath = path.join(process.cwd(), CONFIG_FILE);
-  if (fs.existsSync(configPath)) {
-    const { overwrite } = await prompts({
-      type: "confirm",
-      name: "overwrite",
-      message: "sinew.json already exists. Overwrite?",
-      initial: false,
-    });
-
-    if (!overwrite) {
-      console.log(pc.yellow("  Aborted."));
-      return;
-    }
-  }
 
   // Detect framework
   const detectedFramework = detectFramework();
@@ -70,7 +56,30 @@ export async function init() {
     },
   };
 
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  const data = JSON.stringify(config, null, 2);
+
+  // "wx" fails if the file exists, avoiding a check-then-write race.
+  try {
+    fs.writeFileSync(configPath, data, { flag: "wx" });
+  } catch (err) {
+    if (!(err instanceof Error) || !("code" in err) || err.code !== "EEXIST") {
+      throw err;
+    }
+
+    const { overwrite } = await prompts({
+      type: "confirm",
+      name: "overwrite",
+      message: "sinew.json already exists. Overwrite?",
+      initial: false,
+    });
+
+    if (!overwrite) {
+      console.log(pc.yellow("  Aborted."));
+      return;
+    }
+
+    fs.writeFileSync(configPath, data);
+  }
 
   console.log(pc.green(`\n  Created ${CONFIG_FILE}`));
   console.log(pc.dim(`\n  Run ${pc.bold("sinew add <pattern>")} to add a pattern.\n`));

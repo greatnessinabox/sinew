@@ -35,6 +35,15 @@ export { stripePayments, lemonsqueezy, usageBilling } from "./patterns/payments/
 // Monitoring patterns
 export { sentryMonitoring, opentelemetry, logging } from "./patterns/monitoring/index.js";
 
+// Security patterns
+export {
+  auditLogging,
+  dataEncryption,
+  csrfProtection,
+  corsConfig,
+  mfa,
+} from "./patterns/security/index.js";
+
 // AI patterns
 export {
   aiChat,
@@ -59,6 +68,13 @@ import { redisCache, nextjsCache, inMemoryCache } from "./patterns/caching/index
 import { resendEmail, nodemailer, awsSes } from "./patterns/email/index.js";
 import { stripePayments, lemonsqueezy, usageBilling } from "./patterns/payments/index.js";
 import { sentryMonitoring, opentelemetry, logging } from "./patterns/monitoring/index.js";
+import {
+  auditLogging,
+  dataEncryption,
+  csrfProtection,
+  corsConfig,
+  mfa,
+} from "./patterns/security/index.js";
 import {
   aiChat,
   aiEmbeddings,
@@ -109,6 +125,12 @@ export const patterns: Pattern[] = [
   sentryMonitoring,
   opentelemetry,
   logging,
+  // Security
+  auditLogging,
+  dataEncryption,
+  csrfProtection,
+  corsConfig,
+  mfa,
   // AI
   aiChat,
   aiEmbeddings,

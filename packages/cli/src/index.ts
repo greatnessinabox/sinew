@@ -4,10 +4,11 @@ import { Command } from "commander";
 import { add } from "./commands/add.js";
 import { init } from "./commands/init.js";
 import { list } from "./commands/list.js";
+import pkg from "../package.json" with { type: "json" };
 
 const program = new Command();
 
-program.name("sinew").description("Infrastructure patterns for your project").version("0.1.0");
+program.name("sinew").description("Infrastructure patterns for your project").version(pkg.version);
 
 program.command("init").description("Initialize sinew in your project").action(init);
 
