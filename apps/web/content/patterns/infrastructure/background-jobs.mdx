@@ -127,6 +127,20 @@ export async function onUserCreated(user: { id: string; email: string; name: str
     name: user.name,
   });
 }
+
+export async function onOrderPlaced(order: {
+  id: string;
+  userId: string;
+  items: Array<{ productId: string; quantity: number }>;
+  total: number;
+}) {
+  await triggerEvent("order/placed", {
+    orderId: order.id,
+    userId: order.userId,
+    items: order.items,
+    total: order.total,
+  });
+}
 ```
 
 ## Configuration

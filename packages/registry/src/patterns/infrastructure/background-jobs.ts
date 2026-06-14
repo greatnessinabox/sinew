@@ -88,6 +88,7 @@ export type Events = {
     data: {
       reportType: "daily" | "weekly" | "monthly";
       userId: string;
+      email: string;
       startDate: string;
       endDate: string;
     };
@@ -185,7 +186,7 @@ export const generateReport = inngest.createFunction(
     triggers: [{ event: "report/generate" }],
   },
   async ({ event, step }) => {
-    const { reportType, userId, startDate, endDate } = event.data;
+    const { reportType, email, startDate, endDate } = event.data;
 
     // Fetch data
     const data = await step.run("fetch-data", async () => {
@@ -213,7 +214,7 @@ export const generateReport = inngest.createFunction(
     await step.sendEvent("notify-user", {
       name: "email/send",
       data: {
-        to: userId,
+        to: email,
         subject: \`Your \${reportType} report is ready\`,
         template: "report-ready",
         variables: { reportUrl: report.url },
@@ -291,12 +292,14 @@ export async function onOrderPlaced(order: {
 export async function requestReport(params: {
   type: "daily" | "weekly" | "monthly";
   userId: string;
+  email: string;
   startDate: Date;
   endDate: Date;
 }) {
   await triggerEvent("report/generate", {
     reportType: params.type,
     userId: params.userId,
+    email: params.email,
     startDate: params.startDate.toISOString(),
     endDate: params.endDate.toISOString(),
   });
