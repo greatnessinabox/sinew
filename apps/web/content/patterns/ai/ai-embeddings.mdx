@@ -176,7 +176,8 @@ ${context}`;
 ### Index Documents
 
 ```typescript
-import { upsertDocument, chunkText } from "@/lib/ai/vector-store";
+import { upsertDocument } from "@/lib/ai/vector-store";
+import { chunkText } from "@/lib/ai/embeddings";
 
 const document = await fetchDocument();
 const chunks = chunkText(document.content);
