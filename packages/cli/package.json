@@ -1,6 +1,6 @@
 {
   "name": "@greatnessinabox/sinew",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "description": "CLI for adding infrastructure patterns to your project",
   "bin": {
@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@sinew/registry": "*",
-    "commander": "^14.0.2",
+    "commander": "^15.0.0",
     "picocolors": "^1.1.1",
     "prompts": "^2.4.2"
   },
@@ -24,7 +24,7 @@
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
     "@types/prompts": "^2.4.9",
-    "typescript": "5.9.3"
+    "typescript": "^6.0.2"
   },
   "files": [
     "dist"
@@ -41,5 +41,8 @@
     "type": "git",
     "url": "https://github.com/greatnessinabox/sinew"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  }
 }

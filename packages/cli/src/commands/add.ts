@@ -23,20 +23,20 @@ export async function add(patternArg?: string) {
     return;
   }
 
-  let pattern: Pattern | undefined;
+  let pattern: Pattern;
 
   if (patternArg) {
     // Parse pattern argument (e.g., "database/connection-pooling")
     const [category, slug] = patternArg.split("/");
-    if (category && slug) {
-      pattern = getPattern(category, slug);
-    }
+    const resolved = category && slug ? getPattern(category, slug) : undefined;
 
-    if (!pattern) {
+    if (!resolved) {
       console.log(pc.red(`  Pattern "${patternArg}" not found.\n`));
       console.log(pc.dim("  Run `sinew list` to see available patterns.\n"));
       return;
     }
+
+    pattern = resolved;
   } else {
     // Interactive selection
     const { selectedPattern } = await prompts({
@@ -56,10 +56,6 @@ export async function add(patternArg?: string) {
     }
 
     pattern = selectedPattern;
-  }
-
-  if (!pattern) {
-    return;
   }
 
   // Check if framework is supported
@@ -159,14 +155,18 @@ export async function add(patternArg?: string) {
       targetPath = path.join(process.cwd(), config.paths.lib, file.path);
     }
 
-    // Create directory if needed
+    // Create directory if needed (recursive mkdir is a no-op when it exists)
     const dir = path.dirname(targetPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    fs.mkdirSync(dir, { recursive: true });
 
-    // Check if file exists
-    if (fs.existsSync(targetPath)) {
+    // "wx" fails if the file exists, avoiding a check-then-write race.
+    try {
+      fs.writeFileSync(targetPath, file.content, { flag: "wx" });
+    } catch (err) {
+      if (!(err instanceof Error) || !("code" in err) || err.code !== "EEXIST") {
+        throw err;
+      }
+
       const { overwrite } = await prompts({
         type: "confirm",
         name: "overwrite",
@@ -178,9 +178,10 @@ export async function add(patternArg?: string) {
         console.log(pc.dim(`  Skipped ${path.relative(process.cwd(), targetPath)}`));
         continue;
       }
+
+      fs.writeFileSync(targetPath, file.content);
     }
 
-    fs.writeFileSync(targetPath, file.content);
     console.log(pc.green(`  Created ${path.relative(process.cwd(), targetPath)}`));
   }
 
