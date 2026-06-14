@@ -35,6 +35,15 @@ export { stripePayments, lemonsqueezy, usageBilling } from "./patterns/payments/
 // Monitoring patterns
 export { sentryMonitoring, opentelemetry, logging } from "./patterns/monitoring/index.js";
 
+// Developer Experience patterns
+export {
+  featureFlags,
+  analytics,
+  search,
+  i18n,
+  contentModeration,
+} from "./patterns/developer-experience/index.js";
+
 // Infrastructure patterns
 export {
   fileUploads,
@@ -77,6 +86,13 @@ import { redisCache, nextjsCache, inMemoryCache } from "./patterns/caching/index
 import { resendEmail, nodemailer, awsSes } from "./patterns/email/index.js";
 import { stripePayments, lemonsqueezy, usageBilling } from "./patterns/payments/index.js";
 import { sentryMonitoring, opentelemetry, logging } from "./patterns/monitoring/index.js";
+import {
+  featureFlags,
+  analytics,
+  search,
+  i18n,
+  contentModeration,
+} from "./patterns/developer-experience/index.js";
 import {
   fileUploads,
   backgroundJobs,
@@ -141,6 +157,12 @@ export const patterns: Pattern[] = [
   sentryMonitoring,
   opentelemetry,
   logging,
+  // Developer Experience
+  featureFlags,
+  analytics,
+  search,
+  i18n,
+  contentModeration,
   // Infrastructure
   fileUploads,
   backgroundJobs,

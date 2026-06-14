@@ -1,0 +1,317 @@
+# Search
+
+Full-text search with typo tolerance.
+
+## The Problem
+
+Adding search to your app requires:
+
+- Fast full-text search with typo tolerance
+- Filtering and faceted navigation
+- Search highlighting
+- Proper indexing strategy
+
+## The Solution
+
+Use Meilisearch for typo-tolerant full-text search with filters, facets, and highlighting. Includes indexing utilities, a React hook for debounced search, and a search box component.
+
+## Files
+
+```typescript title="lib/search/client.ts"
+import { MeiliSearch, Index } from "meilisearch";
+
+// Admin client (master key) for indexing. Never expose this key to the browser.
+const adminClient = new MeiliSearch({
+  host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
+  apiKey: process.env.MEILISEARCH_API_KEY,
+});
+
+// Search-only client for query-time requests. Falls back to the admin key only
+// if a search key is not configured.
+const searchClient = new MeiliSearch({
+  host: process.env.MEILISEARCH_HOST || "http://localhost:7700",
+  apiKey: process.env.MEILISEARCH_SEARCH_API_KEY || process.env.MEILISEARCH_API_KEY,
+});
+
+export const INDEXES = {
+  products: "products",
+  articles: "articles",
+  users: "users",
+} as const;
+
+export type IndexName = (typeof INDEXES)[keyof typeof INDEXES];
+
+// Attributes a user may filter, sort, or facet on, per index. Shared with the
+// index settings and used to guard the public search endpoint.
+export const indexAttributes: Record<IndexName, { filterable: string[]; sortable: string[] }> = {
+  products: {
+    filterable: ["category", "brand", "price", "inStock"],
+    sortable: ["price", "createdAt", "rating"],
+  },
+  articles: {
+    filterable: ["author", "tags", "publishedAt", "category"],
+    sortable: ["publishedAt", "views"],
+  },
+  users: {
+    filterable: ["role", "createdAt"],
+    sortable: ["createdAt", "name"],
+  },
+};
+
+export const MAX_LIMIT = 50;
+export const MAX_OFFSET = 10_000;
+
+// Admin index for write operations.
+export function getIndex<T extends Record<string, unknown>>(name: IndexName): Index<T> {
+  return adminClient.index<T>(name);
+}
+
+export interface SearchOptions {
+  limit?: number;
+  offset?: number;
+  filter?: string | string[];
+  sort?: string[];
+  facets?: string[];
+}
+
+// Clamp pagination and reject filter/sort over attributes outside the allowlist.
+export function sanitizeSearchOptions(index: IndexName, options: SearchOptions): SearchOptions {
+  const allowed = indexAttributes[index];
+  const limit = Math.min(Math.max(1, options.limit ?? 20), MAX_LIMIT);
+  const offset = Math.min(Math.max(0, options.offset ?? 0), MAX_OFFSET);
+
+  const filterExpr = Array.isArray(options.filter)
+    ? options.filter.join(" ")
+    : (options.filter ?? "");
+  for (const [, attr] of filterExpr.matchAll(
+    /([a-zA-Z_][\w.]*)\s*(?:=|!=|>=|<=|>|<|IN|TO|EXISTS|CONTAINS|STARTS WITH)/gi
+  )) {
+    if (!allowed.filterable.includes(attr))
+      throw new Error(`Filtering on "${attr}" is not allowed`);
+  }
+
+  for (const entry of options.sort ?? []) {
+    const attr = entry.split(":")[0];
+    if (!allowed.sortable.includes(attr)) throw new Error(`Sorting on "${attr}" is not allowed`);
+  }
+
+  return {
+    limit,
+    offset,
+    filter: options.filter,
+    sort: options.sort,
+    facets: options.facets?.filter((f) => allowed.filterable.includes(f)),
+  };
+}
+
+export async function search<T extends Record<string, unknown>>(
+  index: IndexName,
+  query: string,
+  options: SearchOptions = {}
+) {
+  const safe = sanitizeSearchOptions(index, options);
+
+  const results = await searchClient.index<T>(index).search(query, {
+    limit: safe.limit,
+    offset: safe.offset,
+    filter: safe.filter,
+    sort: safe.sort,
+    facets: safe.facets,
+    attributesToHighlight: ["*"],
+    highlightPreTag: "<mark>",
+    highlightPostTag: "</mark>",
+  });
+
+  return {
+    hits: results.hits,
+    query: results.query,
+    processingTimeMs: results.processingTimeMs,
+    estimatedTotalHits: results.estimatedTotalHits ?? results.hits.length,
+    facetDistribution: results.facetDistribution,
+  };
+}
+
+// Admin client for indexing operations.
+export function getClient() {
+  return adminClient;
+}
+```
+
+```typescript title="lib/search/indexing.ts"
+import { getClient, getIndex, indexAttributes, INDEXES, type IndexName } from "./client";
+
+// Filterable/sortable attributes come from the shared allowlist so the search
+// endpoint and the index settings can never drift apart.
+const indexSettings: Record<IndexName, object> = {
+  products: {
+    searchableAttributes: ["name", "description", "category", "brand"],
+    filterableAttributes: indexAttributes.products.filterable,
+    sortableAttributes: indexAttributes.products.sortable,
+  },
+  articles: {
+    searchableAttributes: ["title", "content", "author", "tags"],
+    filterableAttributes: indexAttributes.articles.filterable,
+    sortableAttributes: indexAttributes.articles.sortable,
+  },
+  users: {
+    searchableAttributes: ["name", "email", "bio"],
+    filterableAttributes: indexAttributes.users.filterable,
+    sortableAttributes: indexAttributes.users.sortable,
+  },
+};
+
+export async function initializeIndex(name: IndexName): Promise<void> {
+  const client = getClient();
+  // createIndex enqueues a task; waitTask() blocks until it finishes so settings
+  // and documents don't race index creation on the first run.
+  await client.createIndex(name, { primaryKey: "id" }).waitTask();
+  const index = getIndex(name);
+  await index.updateSettings(indexSettings[name]);
+}
+
+export async function addDocuments<T extends { id: string }>(
+  index: IndexName,
+  documents: T[]
+): Promise<void> {
+  const idx = getIndex<T>(index);
+  await idx.addDocuments(documents);
+}
+```
+
+```typescript title="hooks/use-search.ts"
+"use client";
+
+import { useState, useCallback, useEffect, useRef } from "react";
+
+export function useSearch<T extends Record<string, unknown>>(
+  index: string,
+  options: { debounceMs?: number } = {}
+) {
+  const { debounceMs = 300 } = options;
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ hits: T[] } | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const performSearch = useCallback(
+    async (searchQuery: string) => {
+      if (!searchQuery.trim()) {
+        setResults(null);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index, query: searchQuery }),
+        });
+        const data = await response.json();
+        setResults(data);
+      } catch (error) {
+        console.error("Search failed:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [index]
+  );
+
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => performSearch(query), debounceMs);
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [query, debounceMs, performSearch]);
+
+  return { query, setQuery, results, isLoading };
+}
+```
+
+```typescript title="app/api/search/route.ts"
+import { NextRequest, NextResponse } from "next/server";
+import {
+  search,
+  sanitizeSearchOptions,
+  type IndexName,
+  type SearchOptions,
+  INDEXES,
+} from "@/lib/search/client";
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const { index, query } = body;
+
+  if (!Object.values(INDEXES).includes(index as IndexName)) {
+    return NextResponse.json({ error: "Invalid index" }, { status: 400 });
+  }
+  if (typeof query !== "string") {
+    return NextResponse.json({ error: "Query must be a string" }, { status: 400 });
+  }
+
+  // Only forward known option keys. Never spread the raw body into Meilisearch.
+  const options: SearchOptions = {
+    limit: typeof body.limit === "number" ? body.limit : undefined,
+    offset: typeof body.offset === "number" ? body.offset : undefined,
+    filter: body.filter,
+    sort: Array.isArray(body.sort) ? body.sort : undefined,
+    facets: Array.isArray(body.facets) ? body.facets : undefined,
+  };
+
+  try {
+    sanitizeSearchOptions(index as IndexName, options);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid search options" },
+      { status: 400 }
+    );
+  }
+
+  const results = await search(index as IndexName, query, options);
+  return NextResponse.json(results);
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                     | Description                              | Required |
+| ---------------------------- | ---------------------------------------- | -------- |
+| `MEILISEARCH_HOST`           | Meilisearch server URL                   | Yes      |
+| `MEILISEARCH_API_KEY`        | Admin/master key (indexing, server-only) | Yes      |
+| `MEILISEARCH_SEARCH_API_KEY` | Search-only key used for query requests  | No       |
+
+## Usage
+
+### Index Documents
+
+```typescript
+import { addDocuments } from "@/lib/search/indexing";
+
+await addDocuments("products", [
+  { id: "1", name: "Widget", category: "Tools", price: 29.99 },
+  { id: "2", name: "Gadget", category: "Electronics", price: 49.99 },
+]);
+```
+
+### Search with Filters
+
+```typescript
+import { search } from "@/lib/search/client";
+
+const results = await search("products", "widget", {
+  filter: "category = Tools AND price < 50",
+  sort: ["price:asc"],
+  facets: ["category", "brand"],
+});
+```
+
+## Alternatives
+
+- **Algolia** - Industry-leading search-as-a-service
+- **Meilisearch** - Open-source, easy to self-host
+- **Typesense** - Open-source Algolia alternative
+- **Orama** - Runs client-side in the browser
