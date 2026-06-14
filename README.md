@@ -23,7 +23,7 @@ Sinew is different. It's a **pattern registry**—curated, tested infrastructure
 
 ```bash
 # Install the CLI
-npm install -g sinew
+npm install -g @greatnessinabox/sinew
 
 # Initialize in your project
 sinew init
