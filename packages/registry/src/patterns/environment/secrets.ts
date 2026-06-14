@@ -18,7 +18,7 @@ import crypto from "crypto";
 const secretsSchema = z.object({
   DATABASE_URL: z.string().min(1),
   AUTH_SECRET: z.string().min(32),
-  ENCRYPTION_KEY: z.string().length(64), // 256-bit key as hex
+  ENCRYPTION_KEY: z.string().length(64).regex(/^[0-9a-f]{64}$/i, "Must be 64 hex characters"), // 256-bit key as hex
   // Add your secrets here
 });
 

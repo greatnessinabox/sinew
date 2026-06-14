@@ -44,6 +44,33 @@ export {
   contentModeration,
 } from "./patterns/developer-experience/index.js";
 
+// Infrastructure patterns
+export {
+  fileUploads,
+  backgroundJobs,
+  scheduledTasks,
+  webhooks,
+  realtime,
+} from "./patterns/infrastructure/index.js";
+
+// Security patterns
+export {
+  auditLogging,
+  dataEncryption,
+  csrfProtection,
+  corsConfig,
+  mfa,
+} from "./patterns/security/index.js";
+
+// AI patterns
+export {
+  aiChat,
+  aiEmbeddings,
+  aiToolCalling,
+  aiRateLimits,
+  aiStreamingUi,
+} from "./patterns/ai/index.js";
+
 import { connectionPooling, prismaEdge, drizzleConfig } from "./patterns/database/index.js";
 import { oauthSetup, sessions, rbac } from "./patterns/auth/index.js";
 import { typeSafeEnv, secrets } from "./patterns/environment/index.js";
@@ -66,6 +93,27 @@ import {
   i18n,
   contentModeration,
 } from "./patterns/developer-experience/index.js";
+import {
+  fileUploads,
+  backgroundJobs,
+  scheduledTasks,
+  webhooks,
+  realtime,
+} from "./patterns/infrastructure/index.js";
+import {
+  auditLogging,
+  dataEncryption,
+  csrfProtection,
+  corsConfig,
+  mfa,
+} from "./patterns/security/index.js";
+import {
+  aiChat,
+  aiEmbeddings,
+  aiToolCalling,
+  aiRateLimits,
+  aiStreamingUi,
+} from "./patterns/ai/index.js";
 import type { Pattern } from "./schema.js";
 
 export const patterns: Pattern[] = [
@@ -115,6 +163,24 @@ export const patterns: Pattern[] = [
   search,
   i18n,
   contentModeration,
+  // Infrastructure
+  fileUploads,
+  backgroundJobs,
+  scheduledTasks,
+  webhooks,
+  realtime,
+  // Security
+  auditLogging,
+  dataEncryption,
+  csrfProtection,
+  corsConfig,
+  mfa,
+  // AI
+  aiChat,
+  aiEmbeddings,
+  aiToolCalling,
+  aiRateLimits,
+  aiStreamingUi,
 ];
 
 export function getPattern(category: string, slug: string): Pattern | undefined {

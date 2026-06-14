@@ -1,0 +1,170 @@
+# CORS Configuration
+
+Configurable CORS setup for API routes with origin validation.
+
+## The Problem
+
+APIs need proper CORS configuration to:
+
+- Allow legitimate cross-origin requests
+- Block unauthorized origins
+- Handle preflight requests correctly
+- Support credentials when needed
+
+## The Solution
+
+Implement CORS middleware with configurable origins, methods, and headers. Supports both middleware-based and route-level configuration.
+
+## Files
+
+```typescript title="lib/cors/config.ts"
+export interface CORSConfig {
+  allowedOrigins: string[] | "*";
+  allowedMethods: string[];
+  allowedHeaders: string[];
+  exposedHeaders?: string[];
+  credentials?: boolean;
+  maxAge?: number;
+}
+
+export const defaultConfig: CORSConfig = {
+  allowedOrigins: process.env.CORS_ALLOWED_ORIGINS?.split(",") ?? ["http://localhost:3000"],
+  allowedMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+  exposedHeaders: ["X-Request-Id"],
+  credentials: true,
+  maxAge: 86400, // 24 hours
+};
+
+// Strict config for production
+export const strictConfig: CORSConfig = {
+  allowedOrigins: process.env.CORS_ALLOWED_ORIGINS?.split(",") ?? [],
+  allowedMethods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  maxAge: 3600,
+};
+```
+
+```typescript title="lib/cors/middleware.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { defaultConfig, type CORSConfig } from "./config";
+
+function isOriginAllowed(origin: string | null, config: CORSConfig): boolean {
+  if (!origin) return false;
+  if (config.allowedOrigins === "*") return true;
+  return config.allowedOrigins.includes(origin);
+}
+
+export function handlePreflight(origin: string, config: CORSConfig): NextResponse {
+  const response = new NextResponse(null, { status: 204 });
+
+  if (config.allowedOrigins === "*") {
+    if (config.credentials && origin) {
+      // "*" is invalid with credentials, so echo the request origin instead.
+      response.headers.set("Access-Control-Allow-Origin", origin);
+      response.headers.set("Vary", "Origin");
+    } else {
+      response.headers.set("Access-Control-Allow-Origin", "*");
+    }
+  } else if (config.allowedOrigins.includes(origin)) {
+    response.headers.set("Access-Control-Allow-Origin", origin);
+    response.headers.set("Vary", "Origin");
+  }
+
+  response.headers.set("Access-Control-Allow-Methods", config.allowedMethods.join(", "));
+  response.headers.set("Access-Control-Allow-Headers", config.allowedHeaders.join(", "));
+
+  if (config.credentials) {
+    response.headers.set("Access-Control-Allow-Credentials", "true");
+  }
+  if (config.maxAge) {
+    response.headers.set("Access-Control-Max-Age", config.maxAge.toString());
+  }
+
+  return response;
+}
+
+export function corsMiddleware(request: NextRequest): NextResponse | null {
+  const origin = request.headers.get("origin");
+
+  if (!request.nextUrl.pathname.startsWith("/api")) {
+    return null;
+  }
+
+  if (origin && !isOriginAllowed(origin, defaultConfig)) {
+    return new NextResponse("CORS: Origin not allowed", { status: 403 });
+  }
+
+  if (request.method === "OPTIONS") {
+    return handlePreflight(origin ?? "", defaultConfig);
+  }
+
+  return null;
+}
+```
+
+## Usage
+
+### Add to proxy.ts
+
+Next.js 16 renamed `middleware.ts` to `proxy.ts` (the export is `proxy`). The middleware echoes the matched origin, so multiple allowed origins work here:
+
+```typescript title="proxy.ts"
+import { NextRequest, NextResponse } from "next/server";
+import { corsMiddleware } from "@/lib/cors/middleware";
+
+export function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/api")) {
+    const corsResponse = corsMiddleware(request);
+    if (corsResponse) return corsResponse;
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/api/:path*"],
+};
+```
+
+### Alternative: next.config.ts
+
+A static header can only carry a **single** origin (or `*`). Do not pass a comma-separated list, it produces an invalid header and browsers reject the request. For multiple origins, use the proxy variant above.
+
+```typescript title="next.config.ts"
+const CORS_ORIGIN = process.env.CORS_ALLOWED_ORIGIN || "http://localhost:3000";
+
+const nextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/api/:path*",
+        headers: [
+          // Single origin only.
+          { key: "Access-Control-Allow-Origin", value: CORS_ORIGIN },
+          { key: "Vary", value: "Origin" },
+          { key: "Access-Control-Allow-Methods", value: "GET, POST, PUT, DELETE, OPTIONS" },
+          { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
+        ],
+      },
+    ];
+  },
+};
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable               | Description                                        | Required         |
+| ---------------------- | -------------------------------------------------- | ---------------- |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated origins (proxy/middleware variant) | Yes (production) |
+| `CORS_ALLOWED_ORIGIN`  | A single origin (next.config.ts static variant)    | If using static  |
+
+Example:
+
+```bash
+CORS_ALLOWED_ORIGINS="https://example.com,https://app.example.com"
+CORS_ALLOWED_ORIGIN="https://example.com"
+```

@@ -343,7 +343,7 @@ export const sandboxSessions = {
     const store = getSessionDemoStore(demoSessionId);
     const now = Date.now();
     const session: DemoSession = {
-      id: `sess_${Math.random().toString(36).slice(2, 11)}`,
+      id: `sess_${crypto.randomUUID()}`,
       userId: "user_demo123",
       device: device || devices[Math.floor(Math.random() * devices.length)] || "Unknown",
       browser: browsers[Math.floor(Math.random() * browsers.length)] || "Unknown",

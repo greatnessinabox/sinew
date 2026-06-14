@@ -1,0 +1,181 @@
+# Data Encryption
+
+Field-level encryption for sensitive data using AES-256-GCM.
+
+## The Problem
+
+Storing sensitive data (PII, credentials, payment info) requires:
+
+- Encryption at rest beyond database-level encryption
+- Field-level granularity for compliance
+- Secure key management
+- Protection against database breaches
+
+## The Solution
+
+Use AES-256-GCM for field-level encryption with key-rotation support and a Prisma extension for seamless integration.
+
+## Files
+
+```typescript title="lib/encryption/crypto.ts"
+import crypto from "crypto";
+
+const ALGORITHM = "aes-256-gcm";
+const IV_LENGTH = 16;
+// Version prefix on every ciphertext: lets us detect encrypted values and
+// rotate keys without changing the wire format.
+const VERSION = "v1";
+
+function parseKey(value: string, label: string): Buffer {
+  if (!/^[0-9a-f]{64}$/i.test(value)) {
+    throw new Error(`${label} must be 64 hex characters (256 bits)`);
+  }
+  return Buffer.from(value, "hex");
+}
+
+function getKey(): Buffer {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) throw new Error("ENCRYPTION_KEY is required");
+  return parseKey(key, "ENCRYPTION_KEY");
+}
+
+// Optional previous key, tried on decrypt during a rotation window.
+function getPreviousKey(): Buffer | null {
+  const key = process.env.ENCRYPTION_KEY_PREVIOUS;
+  return key ? parseKey(key, "ENCRYPTION_KEY_PREVIOUS") : null;
+}
+
+// Format: v1:iv:authTag:ciphertext (all hex).
+export function encrypt(plaintext: string): string {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv);
+
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  return [VERSION, iv.toString("hex"), authTag.toString("hex"), encrypted.toString("hex")].join(
+    ":"
+  );
+}
+
+function decryptWithKey(key: Buffer, iv: Buffer, authTag: Buffer, ciphertext: Buffer): string {
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  // Concat the Buffers, then decode once: avoids corrupting a multibyte
+  // character that straddles the update/final boundary.
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+}
+
+export function decrypt(encryptedData: string): string {
+  const [version, ivHex, authTagHex, ciphertextHex] = encryptedData.split(":");
+  if (version !== VERSION || !ivHex || !authTagHex || !ciphertextHex) {
+    throw new Error("Invalid ciphertext format");
+  }
+
+  const iv = Buffer.from(ivHex, "hex");
+  const authTag = Buffer.from(authTagHex, "hex");
+  const ciphertext = Buffer.from(ciphertextHex, "hex");
+
+  try {
+    return decryptWithKey(getKey(), iv, authTag, ciphertext);
+  } catch (err) {
+    const previous = getPreviousKey();
+    if (previous) return decryptWithKey(previous, iv, authTag, ciphertext);
+    throw err;
+  }
+}
+
+// Detect values produced by encrypt() (carry the version prefix).
+export function isEncrypted(value: string): boolean {
+  return value.startsWith(VERSION + ":");
+}
+```
+
+```typescript title="lib/encryption/fields.ts"
+import { encrypt, decrypt, isEncrypted } from "./crypto";
+
+// Encrypt specific fields in an object
+export function encryptFields<T extends Record<string, unknown>>(data: T, fields: (keyof T)[]): T {
+  const result = { ...data };
+
+  for (const field of fields) {
+    const value = result[field];
+    // Skip already-encrypted values so a read-modify-write cannot double-encrypt.
+    if (typeof value === "string" && value.length > 0 && !isEncrypted(value)) {
+      (result as Record<string, unknown>)[field as string] = encrypt(value);
+    }
+  }
+
+  return result;
+}
+
+// Decrypt specific fields in an object
+export function decryptFields<T extends Record<string, unknown>>(data: T, fields: (keyof T)[]): T {
+  const result = { ...data };
+
+  for (const field of fields) {
+    const value = result[field];
+    if (typeof value === "string" && isEncrypted(value)) {
+      try {
+        (result as Record<string, unknown>)[field as string] = decrypt(value);
+      } catch {
+        // Field wasn't encrypted or decryption failed
+      }
+    }
+  }
+
+  return result;
+}
+```
+
+## Usage
+
+### Encrypt Before Storing
+
+```typescript
+import { encryptFields } from "@/lib/encryption/fields";
+
+const userData = encryptFields(
+  { name: "John", ssn: "123-45-6789", email: "john@example.com" },
+  ["ssn"] // Only encrypt SSN
+);
+
+await db.user.create({ data: userData });
+```
+
+### Decrypt After Reading
+
+```typescript
+import { decryptFields } from "@/lib/encryption/fields";
+
+const user = await db.user.findUnique({ where: { id } });
+const decrypted = decryptFields(user, ["ssn"]);
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable                  | Description                         | Required |
+| ------------------------- | ----------------------------------- | -------- |
+| `ENCRYPTION_KEY`          | 64 hex characters (256-bit key)     | Yes      |
+| `ENCRYPTION_KEY_PREVIOUS` | Old key, set only during a rotation | No       |
+
+### Generate a Key
+
+```bash
+openssl rand -hex 32
+```
+
+## Key Rotation
+
+Every ciphertext already carries a `v1:` version prefix, and `decrypt()` tries the current key first, then `ENCRYPTION_KEY_PREVIOUS`. To rotate:
+
+1. Move the current key to `ENCRYPTION_KEY_PREVIOUS`.
+2. Set the new key as `ENCRYPTION_KEY`.
+3. Re-encrypt stored values (read then write back; the double-encrypt guard skips already-current data).
+4. Remove `ENCRYPTION_KEY_PREVIOUS` once every value is re-encrypted.
+
+## Searchable Hashes
+
+`encryptField` also stores an HMAC-SHA256 `hash` for equality search. It is keyed (so it resists keyless dictionary attacks) but deterministic and unsalted. Do not rely on it for very low-entropy secrets such as SSNs or dates of birth if the key could ever leak.

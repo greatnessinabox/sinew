@@ -42,7 +42,7 @@ interface PlaygroundProps {
 }
 
 function generateSessionId(): string {
-  return `demo-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `demo-${crypto.randomUUID()}`;
 }
 
 function Toast({
