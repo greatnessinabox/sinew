@@ -263,10 +263,10 @@ export function FeatureGate({ flag, children, fallback = null }: FeatureGateProp
     return value ? <>{children}</> : <>{fallback}</>;
   }
 
-  // Percentage flags (assumed to be resolved to boolean by server)
+  // A raw percentage means the server didn't resolve this flag for a user. The
+  // client has no user context, so fail closed instead of showing it to everyone.
   if (typeof value === "number") {
-    // If still a number, treat as percentage > 0 being enabled
-    return value > 0 ? <>{children}</> : <>{fallback}</>;
+    return <>{fallback}</>;
   }
 
   // String variants - render children if flag exists

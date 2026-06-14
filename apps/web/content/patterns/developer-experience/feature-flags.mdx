@@ -129,6 +129,11 @@ export function FeatureGate({
   if (typeof value === "boolean") {
     return value ? <>{children}</> : <>{fallback}</>;
   }
+  // A raw percentage means the server didn't resolve this flag for a user. The
+  // client has no user context, so fail closed instead of showing it to everyone.
+  if (typeof value === "number") {
+    return <>{fallback}</>;
+  }
   return value !== undefined ? <>{children}</> : <>{fallback}</>;
 }
 ```
