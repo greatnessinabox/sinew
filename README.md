@@ -191,6 +191,9 @@ sinew list
 
 # Check your copied patterns against the registry
 sinew audit
+
+# Pull the latest into outdated patterns
+sinew update
 ```
 
 The CLI will:
@@ -217,7 +220,7 @@ sinew audit
 1 outdated of 2 tracked.
 ```
 
-Re-add a pattern to pull the latest. Nothing changes without you; you just stop flying blind on upstream fixes.
+Run `sinew update` to pull the latest into outdated patterns. Files you've changed are staged as `.new` beside your copy to merge, so nothing is clobbered. You just stop flying blind on upstream fixes.
 
 ## Example Apps
 
