@@ -5,7 +5,7 @@
     "": {
       "name": "sinew",
       "devDependencies": {
-        "@anthropic-ai/sdk": "^0.100.1",
+        "@anthropic-ai/sdk": "^0.104.1",
         "@changesets/cli": "^2.29.8",
         "@commitlint/cli": "^20.3.1",
         "@commitlint/config-conventional": "^20.3.1",
@@ -41,7 +41,7 @@
         "@tailwindcss/postcss": "^4.1.18",
         "@types/node": "^25.0.9",
         "@types/pg": "^8.16.0",
-        "@types/react": "19.2.16",
+        "@types/react": "19.2.17",
         "@types/react-dom": "19.2.3",
         "eslint": "^9.39.2",
         "postcss": "^8.5.6",
@@ -73,7 +73,7 @@
         "@repo/eslint-config": "*",
         "@repo/typescript-config": "*",
         "@types/node": "^25.0.9",
-        "@types/react": "19.2.16",
+        "@types/react": "19.2.17",
         "@types/react-dom": "19.2.3",
         "eslint": "^9.39.2",
         "typescript": "^6.0.2",
@@ -101,7 +101,7 @@
         "@tailwindcss/postcss": "^4.1.18",
         "@types/node": "^25.0.9",
         "@types/pg": "^8.16.0",
-        "@types/react": "19.2.16",
+        "@types/react": "19.2.17",
         "@types/react-dom": "^19.2.3",
         "eslint": "^9.39.2",
         "postcss": "^8.5.6",
@@ -123,7 +123,7 @@
       "devDependencies": {
         "@repo/eslint-config": "*",
         "@types/node": "^25.0.9",
-        "@types/react": "19.2.16",
+        "@types/react": "19.2.17",
         "@types/react-dom": "^19.2.3",
         "eslint": "^9.39.2",
         "typescript": "^6.0.2",
@@ -144,7 +144,7 @@
         "@repo/eslint-config": "*",
         "@types/node": "^25.0.9",
         "@types/pg": "^8.16.0",
-        "@types/react": "19.2.16",
+        "@types/react": "19.2.17",
         "@types/react-dom": "^19.2.3",
         "eslint": "^9.39.2",
         "prisma": "^7.2.0",
@@ -153,7 +153,7 @@
     },
     "packages/cli": {
       "name": "@greatnessinabox/sinew",
-      "version": "1.0.3",
+      "version": "1.1.0",
       "bin": {
         "sinew": "./dist/index.js",
       },
@@ -189,7 +189,7 @@
     },
     "packages/registry": {
       "name": "@sinew/registry",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "devDependencies": {
         "@repo/eslint-config": "*",
         "@repo/typescript-config": "*",
@@ -211,7 +211,7 @@
         "@repo/eslint-config": "*",
         "@repo/typescript-config": "*",
         "@types/node": "^25.0.9",
-        "@types/react": "19.2.16",
+        "@types/react": "19.2.17",
         "@types/react-dom": "19.2.3",
         "eslint": "^9.39.2",
         "typescript": "^6.0.2",
@@ -221,7 +221,7 @@
   "packages": {
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 
-    "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.100.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-RANcEe7LpiLczkKGOwoXOTuFdPhuubS0i4xaAKOMpcqc55YO0mukgxppV7eygx3DXNjxWT6RYOLPyOy0aIAmwg=="],
+    "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.104.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-gGACa/+IaiXzRRmF96aOhamoBgapKRBiFWbmmTFP8aMkpaEcuStF+Q61bjo4vPxBM7gqWJNZqsngslRdnLHv0Q=="],
 
     "@auth/core": ["@auth/core@0.41.2", "", { "dependencies": { "@panva/hkdf": "^1.2.1", "jose": "^6.0.6", "oauth4webapi": "^3.3.0", "preact": "10.24.3", "preact-render-to-string": "6.5.11" }, "peerDependencies": { "@simplewebauthn/browser": "^9.0.1", "@simplewebauthn/server": "^9.0.2", "nodemailer": "^7.0.7" }, "optionalPeers": ["@simplewebauthn/browser", "@simplewebauthn/server", "nodemailer"] }, "sha512-Hx5MNBxN2fJTbJKGUKAA0wca43D0Akl3TvufY54Gn8lop7F+34vU1zA1pn0vQfIoVuLIrpfc2nkyjwIaPJMW7w=="],
 
@@ -703,7 +703,7 @@
 
     "@types/prompts": ["@types/prompts@2.4.9", "", { "dependencies": { "@types/node": "*", "kleur": "^3.0.3" } }, "sha512-qTxFi6Buiu8+50/+3DGIWLHM6QuWsEKugJnnP6iv2Mc4ncxE4A/OJkjuVOA+5X0X1S/nq5VJRa8Lu+nwcvbrKA=="],
 
-    "@types/react": ["@types/react@19.2.16", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-esJiCAnl0kfpNdE69f3So4WJUXy95dLZydX0KwK46riIHDzHM7O9Vtf9xCHW0PXIqvgqNrswl522kA/5yx+F4w=="],
+    "@types/react": ["@types/react@19.2.17", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw=="],
 
     "@types/react-dom": ["@types/react-dom@19.2.3", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="],
 
