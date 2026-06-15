@@ -12,7 +12,8 @@
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "dev": "bun run ./src/index.ts",
     "lint": "eslint src --max-warnings 0",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@sinew/registry": "*",

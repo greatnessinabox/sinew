@@ -3,6 +3,14 @@ import prompts from "prompts";
 import fs from "node:fs";
 import path from "node:path";
 import { getPattern, patterns, type Framework, type Pattern } from "@sinew/registry";
+import pkg from "../../package.json" with { type: "json" };
+import {
+  hashPattern,
+  readManifest,
+  writeManifest,
+  recordPattern,
+  MANIFEST_FILE,
+} from "../manifest.js";
 
 const CONFIG_FILE = "sinew.json";
 
@@ -184,6 +192,19 @@ export async function add(patternArg?: string) {
 
     console.log(pc.green(`  Created ${path.relative(process.cwd(), targetPath)}`));
   }
+
+  // Record provenance so `sinew audit` can flag when this pattern changes upstream.
+  const key = `${pattern.category}/${pattern.slug}`;
+  writeManifest(
+    process.cwd(),
+    recordPattern(readManifest(process.cwd()), key, {
+      framework: config.framework,
+      cliVersion: pkg.version,
+      hash: hashPattern(pattern, config.framework),
+      addedAt: new Date().toISOString(),
+    })
+  );
+  console.log(pc.dim(`\n  Tracked ${key} in ${MANIFEST_FILE}`));
 
   // Print dependency install commands
   if (deps.length > 0 || devDeps.length > 0) {
