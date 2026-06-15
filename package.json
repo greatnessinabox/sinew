@@ -21,7 +21,7 @@
     "@anthropic-ai/sdk": "^0.104.1",
     "@changesets/cli": "^2.29.8",
     "@commitlint/cli": "^20.3.1",
-    "@commitlint/config-conventional": "^20.3.1",
+    "@commitlint/config-conventional": "^21.0.2",
     "@repo/eslint-config": "*",
     "eslint": "^9.39.2",
     "husky": "^9.1.7",
