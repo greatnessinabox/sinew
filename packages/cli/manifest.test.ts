@@ -1,0 +1,68 @@
+import { test, expect } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { patterns } from "@sinew/registry";
+import {
+  hashPattern,
+  auditManifest,
+  recordPattern,
+  readManifest,
+  writeManifest,
+  MANIFEST_FILE,
+  type Manifest,
+} from "./src/manifest";
+
+const [p0, p1] = patterns;
+if (!p0 || !p1) throw new Error("registry must have at least two patterns");
+const fw0 = p0.frameworks[0];
+const fw1 = p1.frameworks[0];
+if (!fw0 || !fw1) throw new Error("patterns must declare a framework");
+
+test("hashPattern is deterministic and well-formed", () => {
+  expect(hashPattern(p0, fw0)).toBe(hashPattern(p0, fw0));
+  expect(hashPattern(p0, fw0)).toMatch(/^sha256:[0-9a-f]{64}$/);
+});
+
+test("auditManifest classifies current, outdated, and removed", () => {
+  let m: Manifest = { version: 1, patterns: {} };
+  const k0 = `${p0.category}/${p0.slug}`;
+  const k1 = `${p1.category}/${p1.slug}`;
+
+  m = recordPattern(m, k0, {
+    framework: fw0,
+    cliVersion: "1.0.0",
+    hash: hashPattern(p0, fw0),
+    addedAt: "t",
+  });
+  m = recordPattern(m, k1, {
+    framework: fw1,
+    cliVersion: "1.0.0",
+    hash: "sha256:wrong",
+    addedAt: "t",
+  });
+  m = recordPattern(m, "ghost/missing", {
+    framework: fw0,
+    cliVersion: "1.0.0",
+    hash: "x",
+    addedAt: "t",
+  });
+
+  const status = Object.fromEntries(auditManifest(m).map((r) => [r.key, r.status]));
+  expect(status[k0]).toBe("current");
+  expect(status[k1]).toBe("outdated");
+  expect(status["ghost/missing"]).toBe("removed");
+});
+
+test("readManifest tolerates a malformed lock without crashing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sinew-"));
+  fs.writeFileSync(path.join(dir, MANIFEST_FILE), '{"patterns": null}');
+  expect(readManifest(dir).patterns).toEqual({});
+});
+
+test("writeManifest and readManifest round-trip an entry", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sinew-"));
+  const entry = { framework: fw0, cliVersion: "1.0.0", hash: hashPattern(p0, fw0), addedAt: "t" };
+  writeManifest(dir, recordPattern({ version: 1, patterns: {} }, "a/b", entry));
+  expect(readManifest(dir).patterns["a/b"]).toEqual(entry);
+});
