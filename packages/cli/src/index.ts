@@ -5,6 +5,7 @@ import { add } from "./commands/add.js";
 import { init } from "./commands/init.js";
 import { list } from "./commands/list.js";
 import { audit } from "./commands/audit.js";
+import { update } from "./commands/update.js";
 import pkg from "../package.json" with { type: "json" };
 
 const program = new Command();
@@ -24,5 +25,10 @@ program
   .command("audit")
   .description("Check tracked patterns against the current registry")
   .action(audit);
+
+program
+  .command("update [pattern]")
+  .description("Pull the latest registry version of outdated patterns")
+  .action(update);
 
 program.parse();

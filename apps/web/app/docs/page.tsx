@@ -87,6 +87,12 @@ npx @greatnessinabox/sinew <command>`}</CommandBlock>
               Check your copied patterns against the current registry, and flag anything that has
               changed upstream or been removed.
             </Command>
+
+            <Command name="update" command="sinew update">
+              Pull the latest registry version of outdated patterns. New files land in place; files
+              you&apos;ve changed are staged as <code>.new</code> beside your copy to review and
+              merge.
+            </Command>
           </section>
 
           {/* Staying current */}
@@ -108,8 +114,9 @@ npx @greatnessinabox/sinew <command>`}</CommandBlock>
 
   1 outdated of 2 tracked.`}</CommandBlock>
             <p className="text-muted mt-3 leading-relaxed">
-              Re-add a pattern to pull the latest. Nothing changes without you, so you keep full
-              ownership of the code while still knowing when an upstream fix lands.
+              Run <code>sinew update</code> to pull the latest into outdated patterns. Nothing
+              changes without you, so you keep full ownership of the code while still knowing when
+              an upstream fix lands.
             </p>
           </section>
         </div>
