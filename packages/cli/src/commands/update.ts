@@ -59,22 +59,39 @@ export async function update(patternArg?: string) {
       const rel = relativeTargetPath(file.path, config.paths.lib);
       const abs = path.join(process.cwd(), rel);
 
-      if (!fs.existsSync(abs)) {
+      let current: string | null = null;
+      try {
+        current = fs.readFileSync(abs, "utf-8");
+      } catch (err) {
+        if (!(err instanceof Error) || !("code" in err) || err.code !== "ENOENT") {
+          throw err;
+        }
+      }
+
+      if (current === null) {
         fs.mkdirSync(path.dirname(abs), { recursive: true });
         fs.writeFileSync(abs, file.content);
         console.log(pc.green(`    + ${rel} (new)`));
         continue;
       }
 
-      if (fs.readFileSync(abs, "utf-8") === file.content) {
+      if (current === file.content) {
         console.log(pc.dim(`    = ${rel} (unchanged)`));
         continue;
       }
 
-      // Never clobber the user's copy; stage the new version beside it.
-      fs.writeFileSync(`${abs}.new`, file.content);
+      // Stage the new version beside the user's copy, never clobbering an
+      // existing .new (which may hold in-progress merge work).
       patternStaged++;
-      console.log(pc.yellow(`    ~ ${rel} -> ${rel}.new`));
+      try {
+        fs.writeFileSync(`${abs}.new`, file.content, { flag: "wx" });
+        console.log(pc.yellow(`    ~ ${rel} -> ${rel}.new`));
+      } catch (err) {
+        if (!(err instanceof Error) || !("code" in err) || err.code !== "EEXIST") {
+          throw err;
+        }
+        console.log(pc.yellow(`    ~ ${rel} (${rel}.new already exists, kept)`));
+      }
     }
 
     // Mark the pattern current only once nothing is left to merge, so audit
