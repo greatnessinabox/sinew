@@ -47,7 +47,10 @@ export function readManifest(cwd: string): Manifest {
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf-8"));
     if (isManifest(parsed)) {
-      return parsed;
+      return {
+        version: typeof parsed.version === "number" ? parsed.version : 1,
+        patterns: parsed.patterns,
+      };
     }
   } catch {
     // Treat an unreadable manifest as empty rather than crashing.
