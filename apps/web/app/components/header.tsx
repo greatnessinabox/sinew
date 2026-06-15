@@ -101,6 +101,15 @@ export function Header() {
           >
             Playground
           </Link>
+          <Link
+            href="/docs"
+            className={`text-sm transition-colors ${
+              isActive("/docs") ? "text-foreground font-medium" : "text-muted hover:text-foreground"
+            }`}
+            aria-current={isActive("/docs") ? "page" : undefined}
+          >
+            Docs
+          </Link>
           <a
             href="https://github.com/greatnessinabox/sinew"
             target="_blank"
@@ -164,6 +173,18 @@ export function Header() {
               aria-current={isActive("/demo") ? "page" : undefined}
             >
               Playground
+            </Link>
+            <Link
+              href="/docs"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`block text-sm transition-colors ${
+                isActive("/docs")
+                  ? "text-foreground font-medium"
+                  : "text-muted hover:text-foreground"
+              }`}
+              aria-current={isActive("/docs") ? "page" : undefined}
+            >
+              Docs
             </Link>
             <a
               href="https://github.com/greatnessinabox/sinew"
