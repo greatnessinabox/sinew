@@ -138,6 +138,7 @@ export async function add(patternArg?: string) {
   }
 
   // Write files
+  let written = 0;
   for (const file of files) {
     let targetPath: string;
     if (file.path.startsWith(".")) {
@@ -190,21 +191,25 @@ export async function add(patternArg?: string) {
       fs.writeFileSync(targetPath, file.content);
     }
 
+    written++;
     console.log(pc.green(`  Created ${path.relative(process.cwd(), targetPath)}`));
   }
 
-  // Record provenance so `sinew audit` can flag when this pattern changes upstream.
-  const key = `${pattern.category}/${pattern.slug}`;
-  writeManifest(
-    process.cwd(),
-    recordPattern(readManifest(process.cwd()), key, {
-      framework: config.framework,
-      cliVersion: pkg.version,
-      hash: hashPattern(pattern, config.framework),
-      addedAt: new Date().toISOString(),
-    })
-  );
-  console.log(pc.dim(`\n  Tracked ${key} in ${MANIFEST_FILE}`));
+  // Record provenance so `sinew audit` can flag when this pattern changes
+  // upstream, but only if at least one file was actually written.
+  if (written > 0) {
+    const key = `${pattern.category}/${pattern.slug}`;
+    writeManifest(
+      process.cwd(),
+      recordPattern(readManifest(process.cwd()), key, {
+        framework: config.framework,
+        cliVersion: pkg.version,
+        hash: hashPattern(pattern, config.framework),
+        addedAt: new Date().toISOString(),
+      })
+    );
+    console.log(pc.dim(`\n  Tracked ${key} in ${MANIFEST_FILE}`));
+  }
 
   // Print dependency install commands
   if (deps.length > 0 || devDeps.length > 0) {

@@ -21,6 +21,14 @@ function emptyManifest(): Manifest {
   return { version: 1, patterns: {} };
 }
 
+function isManifest(value: unknown): value is Manifest {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const patterns = (value as { patterns?: unknown }).patterns;
+  return typeof patterns === "object" && patterns !== null && !Array.isArray(patterns);
+}
+
 // Deterministic content hash of a pattern's files for one framework, so audit
 // can tell whether the upstream pattern changed since it was copied.
 export function hashPattern(pattern: Pattern, framework: Framework): string {
@@ -38,8 +46,8 @@ export function readManifest(cwd: string): Manifest {
   }
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf-8"));
-    if (parsed && typeof parsed === "object" && "patterns" in parsed) {
-      return parsed as Manifest;
+    if (isManifest(parsed)) {
+      return parsed;
     }
   } catch {
     // Treat an unreadable manifest as empty rather than crashing.

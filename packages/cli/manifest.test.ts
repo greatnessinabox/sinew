@@ -1,6 +1,17 @@
 import { test, expect } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { patterns } from "@sinew/registry";
-import { hashPattern, auditManifest, recordPattern, type Manifest } from "./src/manifest";
+import {
+  hashPattern,
+  auditManifest,
+  recordPattern,
+  readManifest,
+  writeManifest,
+  MANIFEST_FILE,
+  type Manifest,
+} from "./src/manifest";
 
 const [p0, p1] = patterns;
 if (!p0 || !p1) throw new Error("registry must have at least two patterns");
@@ -41,4 +52,17 @@ test("auditManifest classifies current, outdated, and removed", () => {
   expect(status[k0]).toBe("current");
   expect(status[k1]).toBe("outdated");
   expect(status["ghost/missing"]).toBe("removed");
+});
+
+test("readManifest tolerates a malformed lock without crashing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sinew-"));
+  fs.writeFileSync(path.join(dir, MANIFEST_FILE), '{"patterns": null}');
+  expect(readManifest(dir).patterns).toEqual({});
+});
+
+test("writeManifest and readManifest round-trip an entry", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sinew-"));
+  const entry = { framework: fw0, cliVersion: "1.0.0", hash: hashPattern(p0, fw0), addedAt: "t" };
+  writeManifest(dir, recordPattern({ version: 1, patterns: {} }, "a/b", entry));
+  expect(readManifest(dir).patterns["a/b"]).toEqual(entry);
 });
