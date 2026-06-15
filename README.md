@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
 
-**Production-ready infrastructure patterns you can copy and paste into your apps.**
+**Copy-paste infrastructure patterns you own, that don't go stale.**
 
-Sinew gives you battle-tested infrastructure code—database connections, authentication, deployment configs—that you own and can customize. No dependencies, no lock-in. Just copy what you need.
+Sinew gives you battle-tested infrastructure code (database connections, auth, payments, deployment) that you copy into your project and own outright. No dependency to install, no lock-in. And unlike other copy-paste registries, sinew remembers what it gave you: run `sinew audit` and it tells you when a pattern you copied has changed upstream, so owning the code never means missing a fix.
 
 ## Why Sinew?
 
@@ -17,7 +17,7 @@ Every project needs the same infrastructure pieces: database connections that do
 2. **Following scattered tutorials** (half outdated, half incomplete)
 3. **Installing yet another package** (now you have a dependency to maintain)
 
-Sinew is different. It's a **pattern registry**—curated, tested infrastructure code you copy into your project. You own it. You can read it. You can change it.
+Sinew is different. It's a **pattern registry**: curated, tested infrastructure code you copy into your project. You own it, you can read it, you can change it. And it stays accountable to upstream, so a copied pattern never silently rots.
 
 ## Quick Start
 
@@ -30,6 +30,9 @@ sinew init
 
 # Add a pattern
 sinew add database/connection-pooling
+
+# Later, check if anything you copied changed upstream
+sinew audit
 ```
 
 Or just browse [sinew.marquis.codes](https://sinew.marquis.codes) and copy the code directly.
@@ -145,6 +148,9 @@ sinew add deployment/docker
 
 # List all available patterns
 sinew list
+
+# Check your copied patterns against the registry
+sinew audit
 ```
 
 The CLI will:
@@ -152,6 +158,26 @@ The CLI will:
 - Create files in your project (typically in `lib/` or `src/`)
 - Show you the dependencies you need to install
 - Never overwrite existing files without asking
+- Track what you added in `sinew.lock` so `sinew audit` can flag upstream changes
+
+## Staying current
+
+Copy-paste usually freezes you at the version you copied. Sinew doesn't.
+
+`sinew add` records each pattern in a `sinew.lock` file (framework, CLI version, content hash). Run `sinew audit` anytime to see which copied patterns have changed upstream:
+
+```bash
+sinew audit
+```
+
+```text
+✓ database/connection-pooling (1.1.0)
+↑ auth/sessions (added with 1.1.0, CLI is 1.2.0)
+
+1 outdated of 2 tracked.
+```
+
+Re-add a pattern to pull the latest. Nothing changes without you; you just stop flying blind on upstream fixes.
 
 ## Example Apps
 
@@ -245,6 +271,7 @@ bun run test:e2e
 2. **Readable over clever.** Code should be obvious. No magic.
 3. **Production-first.** Every pattern is what we'd ship to production.
 4. **Framework-aware.** Patterns are adapted for Next.js, Remix, SvelteKit, etc.
+5. **Yours, not frozen.** You own the code, and `sinew audit` keeps you aware when upstream moves.
 
 ## Contributing
 

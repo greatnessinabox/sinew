@@ -43,9 +43,11 @@ export default function Home() {
                   <span className="text-accent">that makes apps work.</span>
                 </h1>
                 <p className="text-muted mt-6 text-lg leading-relaxed lg:mt-8 lg:text-xl">
-                  Infrastructure patterns for databases, auth, deployment, and all the other stuff
-                  that&apos;s hard to get right.{" "}
-                  <span className="text-foreground font-medium">Copy. Paste. Ship.</span>
+                  Infrastructure patterns for databases, auth, payments, and all the other stuff
+                  that&apos;s hard to get right. You own every line.{" "}
+                  <span className="text-foreground font-medium">
+                    Copy, paste, and sinew audit keeps it current.
+                  </span>
                 </p>
 
                 {/* Stats */}
@@ -120,8 +122,8 @@ export default function Home() {
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               <FeatureCard
                 icon={<PackageIcon className="h-5 w-5" />}
-                title="No Dependencies"
-                description="You own the code. No packages to update, no breaking changes to chase. Just copy and customize."
+                title="Yours, Not Frozen"
+                description="You own every line, with no package to install. And sinew audit flags when a pattern you copied drifts from the registry, so owning the code never means missing a fix."
               />
               <FeatureCard
                 icon={<ShieldIcon className="h-5 w-5" />}
