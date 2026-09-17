@@ -263,7 +263,7 @@ This is a [Turborepo](https://turbo.build) monorepo using [Bun](https://bun.sh).
 
 ### Prerequisites
 
-- **Node.js 20+** (use `.nvmrc` with `nvm use`)
+- **Node.js 22+** (use `.nvmrc` with `nvm use`)
 - **Bun 1.3+** as package manager
 
 ### Tech Stack
