@@ -21,7 +21,7 @@
     "@prisma/client": "^7.2.0",
     "@t3-oss/env-nextjs": "^0.13.11",
     "next": "^16.1.3",
-    "next-auth": "^5.0.0-beta.30",
+    "next-auth": "^5.0.0-beta.32",
     "pg": "^8.23.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
