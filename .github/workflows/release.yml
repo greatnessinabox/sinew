@@ -40,13 +40,13 @@ jobs:
 
       - name: Create Release Pull Request or Publish
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
-          version: bun run version-packages
-          publish: bun run release
-          title: "chore: version packages"
-          commit: "chore: version packages"
+          version-script: bun run version-packages
+          publish-script: bun run release
+          pr-title: "chore: version packages"
+          commit-message: "chore: version packages"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
