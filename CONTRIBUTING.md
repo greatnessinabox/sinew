@@ -106,7 +106,7 @@ sinew/
 2. Create a feature branch: `git checkout -b my-new-pattern`
 3. Make your changes
 4. Run `bun lint` and `bun run build` to ensure everything works
-5. Commit with a clear message: `git commit -S -m "Add OAuth pattern for Next.js"`
+5. Commit with a clear message: `git commit -S -m "feat(registry): add OAuth pattern for Next.js"`
 6. Push to your fork: `git push origin my-new-pattern`
 7. Open a Pull Request
 
@@ -157,6 +157,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Commits are
 | `ui`       | packages/ui         |
 | `config`   | Configuration files |
 | `deps`     | Dependencies        |
+| `release`  | Releases            |
 
 ### Examples
 
