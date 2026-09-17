@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@repo/eslint-config": "*",
-    "@tailwindcss/postcss": "^4.1.18",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^25.0.9",
     "@types/pg": "^8.16.0",
     "@types/react": "19.2.17",
