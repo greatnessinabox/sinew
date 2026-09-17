@@ -32,17 +32,30 @@ jobs:
       - name: Regenerate lockfile
         run: bun install
 
+      # Commit via the API so the commit is signed by GitHub; main requires signed commits.
       - name: Commit updated lockfile
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO: ${{ github.repository }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add bun.lock
-          if git diff --cached --quiet bun.lock; then
+          if git diff --quiet bun.lock; then
             echo "No lockfile changes"
-          else
-            git commit -m "chore(deps): regenerate bun.lock"
-            git push
+            exit 0
           fi
+          gh api graphql \
+            -f repo="$REPO" \
+            -f branch="$BRANCH" \
+            -f sha="$(git rev-parse HEAD)" \
+            -f content="$(base64 -w0 bun.lock)" \
+            -f query='mutation($repo: String!, $branch: String!, $sha: GitObjectID!, $content: Base64String!) {
+              createCommitOnBranch(input: {
+                branch: { repositoryNameWithOwner: $repo, branchName: $branch },
+                expectedHeadOid: $sha,
+                message: { headline: "chore(deps): regenerate bun.lock" },
+                fileChanges: { additions: [{ path: "bun.lock", contents: $content }] }
+              }) { commit { oid } }
+            }'
 
       - name: Auto-merge patch and minor updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
