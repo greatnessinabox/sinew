@@ -43,19 +43,23 @@ jobs:
             echo "No lockfile changes"
             exit 0
           fi
-          gh api graphql \
-            -f repo="$REPO" \
-            -f branch="$BRANCH" \
-            -f sha="$(git rev-parse HEAD)" \
-            -f content="$(base64 -w0 bun.lock)" \
-            -f query='mutation($repo: String!, $branch: String!, $sha: GitObjectID!, $content: Base64String!) {
+          # The lockfile is too large for argv, so the request body goes through a file.
+          jq -n \
+            --arg repo "$REPO" \
+            --arg branch "$BRANCH" \
+            --arg sha "$(git rev-parse HEAD)" \
+            --rawfile lock bun.lock \
+            --arg query 'mutation($repo: String!, $branch: String!, $sha: GitObjectID!, $content: Base64String!) {
               createCommitOnBranch(input: {
                 branch: { repositoryNameWithOwner: $repo, branchName: $branch },
                 expectedHeadOid: $sha,
                 message: { headline: "chore(deps): regenerate bun.lock" },
                 fileChanges: { additions: [{ path: "bun.lock", contents: $content }] }
               }) { commit { oid } }
-            }'
+            }' \
+            '{query: $query, variables: {repo: $repo, branch: $branch, sha: $sha, content: ($lock | @base64)}}' \
+            > "$RUNNER_TEMP/commit.json"
+          gh api graphql --input "$RUNNER_TEMP/commit.json" --jq '.data.createCommitOnBranch.commit.oid'
 
       - name: Auto-merge patch and minor updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
