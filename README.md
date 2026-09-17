@@ -263,14 +263,14 @@ This is a [Turborepo](https://turbo.build) monorepo using [Bun](https://bun.sh).
 
 ### Prerequisites
 
-- **Node.js 22+** (use `.nvmrc` with `nvm use`)
+- **Node.js 22.12+** (use `.nvmrc` with `nvm use`)
 - **Bun 1.3+** as package manager
 
 ### Tech Stack
 
 | Technology   | Version |
 | ------------ | ------- |
-| Node.js      | 20      |
+| Node.js      | 22.12+  |
 | Next.js      | 16      |
 | React        | 19      |
 | TypeScript   | 5.9     |
