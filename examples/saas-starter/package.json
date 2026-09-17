@@ -27,7 +27,7 @@
     "react-dom": "^19.3.0",
     "resend": "^6.28.0",
     "stripe": "^20.2.0",
-    "zod": "^4.3.5"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",
