@@ -18,49 +18,6 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Checkout PR branch
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Regenerate lockfile
-        run: bun install
-
-      # Commit via the API so the commit is signed by GitHub; main requires signed commits.
-      - name: Commit updated lockfile
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ github.event.pull_request.head.ref }}
-          REPO: ${{ github.repository }}
-        run: |
-          if git diff --quiet bun.lock; then
-            echo "No lockfile changes"
-            exit 0
-          fi
-          # The lockfile is too large for argv, so the request body goes through a file.
-          jq -n \
-            --arg repo "$REPO" \
-            --arg branch "$BRANCH" \
-            --arg sha "$(git rev-parse HEAD)" \
-            --rawfile lock bun.lock \
-            --arg query 'mutation($repo: String!, $branch: String!, $sha: GitObjectID!, $content: Base64String!) {
-              createCommitOnBranch(input: {
-                branch: { repositoryNameWithOwner: $repo, branchName: $branch },
-                expectedHeadOid: $sha,
-                message: { headline: "chore(deps): regenerate bun.lock" },
-                fileChanges: { additions: [{ path: "bun.lock", contents: $content }] }
-              }) { commit { oid } }
-            }' \
-            '{query: $query, variables: {repo: $repo, branch: $branch, sha: $sha, content: ($lock | @base64)}}' \
-            > "$RUNNER_TEMP/commit.json"
-          gh api graphql --input "$RUNNER_TEMP/commit.json" --jq '.data.createCommitOnBranch.commit.oid'
-
       - name: Auto-merge patch and minor updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
         run: gh pr merge --auto --squash "$PR_URL"
