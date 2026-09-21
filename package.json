@@ -18,7 +18,7 @@
     "release": "turbo run build --filter=@sinew/* && changeset publish"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.104.1",
+    "@anthropic-ai/sdk": "^0.127.0",
     "@changesets/cli": "^2.29.8",
     "@commitlint/cli": "^20.3.1",
     "@commitlint/config-conventional": "^20.3.1",
@@ -26,9 +26,9 @@
     "eslint": "^9.39.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "prettier": "^3.8.0",
-    "prettier-plugin-tailwindcss": "^0.8.0",
-    "turbo": "^2.7.5",
+    "prettier": "^3.9.8",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "turbo": "^2.11.1",
     "typescript": "^6.0.2"
   },
   "engines": {
