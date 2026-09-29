@@ -5,6 +5,11 @@
   "buildCommand": "bun run build",
   "outputDirectory": ".next",
   "regions": ["iad1"],
+  "git": {
+    "deploymentEnabled": {
+      "dependabot/**": false
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
