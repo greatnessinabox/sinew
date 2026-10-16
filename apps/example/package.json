@@ -20,7 +20,7 @@
   "dependencies": {
     "@auth/prisma-adapter": "2.11.3",
     "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "^7.2.0",
+    "@prisma/client": "^7.10.0",
     "@t3-oss/env-nextjs": "^0.13.11",
     "next": "16.4.0",
     "next-auth": "^5.0.0-beta.32",
@@ -40,7 +40,7 @@
     "@types/react-dom": "19.3.0",
     "eslint": "^9.39.2",
     "postcss": "^8.5.29",
-    "prisma": "^7.2.0",
+    "prisma": "^7.10.0",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
