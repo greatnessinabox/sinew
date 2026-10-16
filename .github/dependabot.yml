@@ -20,6 +20,13 @@ updates:
         update-types:
           - minor
           - patch
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+        update-types:
+          - minor
+          - patch
       dev-dependencies:
         dependency-type: development
         update-types:
