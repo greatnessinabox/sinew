@@ -12,6 +12,11 @@ updates:
       - dependencies
     commit-message:
       prefix: "chore(deps)"
+    # eslint-plugin-react peers eslint ^9 at most (7.37.5). Lint dies on 10.
+    ignore:
+      - dependency-name: "eslint"
+        update-types:
+          - "version-update:semver-major"
     groups:
       next-ecosystem:
         patterns:
