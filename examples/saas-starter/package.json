@@ -20,7 +20,7 @@
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.0",
     "@t3-oss/env-nextjs": "^0.13.11",
-    "next": "^16.4.3",
+    "next": "^16.4.5",
     "next-auth": "^5.0.0-beta.32",
     "pg": "^8.23.1",
     "react": "^19.3.1",
@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@repo/eslint-config": "*",
-    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/postcss": "^4.3.5",
     "@types/node": "^25.0.9",
     "@types/pg": "^8.23.1",
     "@types/react": "19.3.0",
